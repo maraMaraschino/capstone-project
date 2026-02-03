@@ -11,6 +11,7 @@ import astropy.units as u
 import astropy.constants as const
 import pickle
 import matplotlib.pyplot as plt
+from itertools import islice
 
 def sdss_chunk_query(chunk_size, last_id, file_name, folder_name):
     """
@@ -178,8 +179,19 @@ def collect_spectrum_data(file):
     plate = spzline['PLATE'][0]
     mjd   = spzline['MJD'][0]
     fiber = spzline['FIBERID'][0]
-    objid = specobj['bestObjID'][0]
     fileid = f'spec-{plate}-{mjd}-{fiber:04d}'
+    try:
+        objid = specobj['bestObjID'][0]
+    except Exception as e:
+        #print(f'Error on {fileid}: {e}')
+        #print(f'Trying new key...')
+        try:
+            objid = specobj['OBJID'][0]
+            #print('Success!')
+        except Exception as e:
+            #print(f'Failed again on {objid}: {e}')
+            #print(f'Skipping object...')
+            objid = None
 
     # Flux and wavelength
     flux       = coadd['flux']
@@ -462,9 +474,12 @@ def collect_values(files):
     mpc_radii = [2, 5, 10, 15]
 
     # Collect values
-    for file in files.iterdir():
+    for file in files:
         spectrum_data_dict = collect_spectrum_data(file)
         objid = spectrum_data_dict['objid']
+        if objid == None:
+            print(f'Failed to find objid for {spectrum_data_dict['fileid']}.')
+            continue
         galaxy_class = sort_galaxy(spectrum_data_dict)
         galaxy_shape = determine_shape(objid, "ZOO/full_morphology.csv")
 
@@ -533,20 +548,27 @@ def load_result(filename='result.pkl'):
     """
     with open(filename, 'rb') as f:
         return pickle.load(f)
-    
-def report_values_by_class(result, radii=[2, 5, 10, 15]):
+
+def report_env_stats_by_type(dict_key, result, radii=[2, 5, 10, 15]):
     """
-    Print out the mean, min, and max for the number of neighbors and number density for each search radius for each galaxy class, 
+    Return a dictionary with the mean, min, and max for the number of neighbors and number density of each search radius for each galaxy class, 
     as well as the percentage of galaxies that were rejected by quality cuts.
     """
-    class_dict = result['class_dict']
-    total = sum(len(obj) for obj in class_dict.values())
-    num_rejected = 0
-    for galaxy_class, data in class_dict.items():
-        if '?' in galaxy_class:
-            num_rejected += 1
-            continue
-        print(f"{galaxy_class} type galaxies:")
+    class_or_shape_dict = result[dict_key]
+    total_counted = []
+    total_rejected = []
+    values_dict = {}
+    for galaxy_type, data in class_or_shape_dict.items():
+        num_counted_by_class = len(class_or_shape_dict[galaxy_type])
+        if '?' in galaxy_type or 'dontknow' in galaxy_type:
+            total_rejected.append(num_counted_by_class)
+        #    continue
+        total_counted.append(num_counted_by_class)
+        values_dict[galaxy_type] = {
+        'num_counted': num_counted_by_class,
+        'by_radius': []
+    }
+
         for i, radius in enumerate(radii):
             nnb_vals = []
             dens_vals = []
@@ -555,26 +577,111 @@ def report_values_by_class(result, radii=[2, 5, 10, 15]):
                 dens = galaxy['densities']
                 nnb_vals.append(nnb[i])
                 dens_vals.append(dens[i])
+
             nnb_vals = np.array(nnb_vals)
             dens_vals = np.array(dens_vals)
-            print(f'  r = {radius}:')
-            print(f'    Mean neighbors: {nnb_vals.mean():.2f},\n    Min neighbors: {nnb_vals.min():.2f}\n    Max neighbors: {nnb_vals.max():.2f}')
-            print(f'    Mean density: {dens_vals.mean():.2e} Gal/Mpc^3,\n    Min density: {dens_vals.min():.2e} Gal/Mpc^3,\n    Max density: {dens_vals.max():.2e} Gal/Mpc^3')
-        print()
-    counted = total - num_rejected
-    print(f'Total counted galaxies: {counted} out of {total}.\n{((num_rejected)/total)*100:.2f}% of galaxies were rejected by quality cuts.')
 
-def plot_by_class_and_radius(result, radii=[2, 5, 10, 15]):
+            nnb_mean  = nnb_vals.mean()
+            nnb_min   = nnb_vals.min()
+            nnb_max   = nnb_vals.max()
+            nnb_std   = nnb_vals.std()
+            dens_mean = dens_vals.mean()
+            dens_min  = dens_vals.min()
+            dens_max  = dens_vals.max()
+            dens_std  = dens_vals.std()
+            
+            values_dict[galaxy_type]['by_radius'].append(
+                {
+                    'radius': radius,
+                    'values': {
+                        'nnb_mean': nnb_mean,
+                        'nnb_min': nnb_min,
+                        'nnb_max': nnb_max,
+                        'nnb_std': nnb_std,
+                        'dens_mean': dens_mean,
+                        'dens_min': dens_min,
+                        'dens_max': dens_max,
+                        'dens_std': dens_std
+                    }
+                }
+            )
+    values_dict['_summary'] = {
+        'total_counted': sum(total_counted),
+        'total_rejected':sum(total_rejected)
+    }
+      
+    total_counted = values_dict['_summary']['total_counted']
+    total_rejected = values_dict['_summary']['total_rejected']
+    print(f"{total_counted} galaxies counted, {(total_rejected/(total_rejected+total_counted))*100:.2f}% or {total_rejected} rejected.")
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
+    for galaxy_type, info in values_dict.items():
+        if galaxy_type == '_summary':
+            continue
+
+        radii = []
+        nnb_means = []
+        dens_means = []
+        nnb_stds = []
+        dens_stds = []
+
+        for entry in info['by_radius']:
+            radii.append(entry['radius'])
+            nnb_means.append(entry['values']['nnb_mean'])
+            nnb_stds.append(entry['values']['nnb_std'])
+            dens_means.append(entry['values']['dens_mean'])
+            dens_stds.append(entry['values']['dens_std'])
+
+        #ax1.plot(radii, nnb_means, marker='o', label=galaxy_class)
+        ax1.errorbar(
+            radii,
+            nnb_means,
+            yerr=nnb_stds,
+            marker='o',
+            capsize=3,
+            label=galaxy_type
+        )
+        ax2.errorbar(
+            radii, 
+            dens_means, 
+            yerr=dens_stds,
+            marker='x', 
+            label=galaxy_type
+        )
+
+    ax1.set_xlabel("Search radius (Mpc)")
+    ax1.set_ylabel("Mean number of neighbors")
+    #ax1.set_yscale('log')
+    ax1.legend()
+
+    ax2.set_xlabel("Search radius (Mpc)")
+    ax2.set_ylabel(r"Mean number density (Galaxies/$Mpc^3$)")
+    #ax2.set_yscale('log')
+    fig.suptitle(f'Environment distribution by galaxy {dict_key[:-5]}.')
+
+    plt.show()
+
+    for galaxy_type, info in values_dict.items():
+        if galaxy_type == '_summary':
+            continue
+
+        print(f"{galaxy_type} type galaxies ({info['num_counted']} total)")
+        for by_radius in info['by_radius']:
+            print(f"  r = {by_radius['radius']}")
+            for key in by_radius['values']:
+                print(f"    {key}: {by_radius['values'][key]}")
+        print()
+
+def plot_age_indicators_and_num_density_by_type(dict_key, result, radii=[2, 5, 10, 15]):
     """
     For each galaxy class, create two plots with an x-axis of the number density and a y-axis of either D4000n or Hdelta.
     Each search volume is represented as a different color
     """
-    class_dict = result['class_dict']
-    flat = {}
-    for galaxy_class, data in class_dict.items():
-        if '?' in galaxy_class:
+    class_or_shape_dict = result[dict_key]
+    for galaxy_type, data in class_or_shape_dict.items():
+        if '?' in galaxy_type:
             continue
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), sharex=True)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), sharex=False)
         for i, radius in enumerate(radii):
             # Flatten spectrum values into lists
             D4000n_vals  = []
@@ -591,15 +698,15 @@ def plot_by_class_and_radius(result, radii=[2, 5, 10, 15]):
             D4000n_vals = np.array(D4000n_vals)
 
             # Create plots
-            ax1.scatter(dens_vals, D4000n_vals, label=f'r = {radius} Mpc', marker='x')
-            ax2.scatter(dens_vals, h_delta_vals, label=f'r = {radius} Mpc', marker='x')
-        ax1.set_xlabel(r'Number Density ($N/Mpc^3$)')
-        ax1.set_ylabel(r'$D4000_n$')
+            ax1.scatter(D4000n_vals, dens_vals,label=f'r = {radius} Mpc', s=3)#, marker='x')
+            ax2.scatter(h_delta_vals, dens_vals, label=f'r = {radius} Mpc', s=3)#, marker='x')
+        ax1.set_ylabel(r'Number Density ($N/Mpc^3$)')
+        ax1.set_xlabel(r'$D4000_n$')
         ax1.legend()
 
-        ax2.set_xlabel(r'Number Density ($N/Mpc^3$)')
-        ax2.set_ylabel(r'$H\delta$')
+        ax2.set_ylabel(r'Number Density ($N/Mpc^3$)')
+        ax2.set_xlabel(r'$H\delta$')
         ax2.legend()
-        fig.suptitle(f'{galaxy_class} type galaxies')
+        fig.suptitle(f'Num density to age indicators across {galaxy_type} {dict_key[:-5]} galaxies')
         fig.tight_layout() 
         plt.show()
