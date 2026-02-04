@@ -867,5 +867,3 @@ def plot_age_indicators_and_num_density_for_all(dict_key, result, radius_index=0
     fig.suptitle(f'Number density vs age indicators for all galaxy types ({dict_key})')
     fig.tight_layout()
     plt.show()
-
-plot_age_indicators_and_num_density_for_all('class_dict', result, 3)
