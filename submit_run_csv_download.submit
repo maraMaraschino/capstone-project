@@ -1,0 +1,15 @@
+container_image = mycontainer.sif
+
+executable = run_csv_download.sh
+
+transfer_input_files = mycontainer.sif, download_csv_files.py, timescape_functions.py
+
+log = job.log
+output = job.out
+error = job.error
+
+request_cpus = 1
+request_memory = 2GB
+request_disk = 2GB
+
+queue 1
