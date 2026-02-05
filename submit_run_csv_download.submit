@@ -1,12 +1,14 @@
-container_image = mycontainer.sif
+container_image = osdf://ospool/ap40/data/adrian.fisher/mycontainer.sif
 
 executable = run_csv_download.sh
 
-transfer_input_files = mycontainer.sif, download_csv_files.py, timescape_functions.py
+transfer_input_files = download_csv_files.py, timescape_functions.py
 
 log = job.log
 output = job.out
 error = job.error
+
++JobDurationCategory = "Medium"
 
 request_cpus = 1
 request_memory = 2GB

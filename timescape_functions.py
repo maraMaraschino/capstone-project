@@ -11,7 +11,7 @@ import astropy.units as u
 import astropy.constants as const
 import pickle
 import matplotlib.pyplot as plt
-from itertools import islice
+import time
 
 def sdss_chunk_query(chunk_size, last_id, file_name, folder_name):
     """
@@ -19,7 +19,6 @@ def sdss_chunk_query(chunk_size, last_id, file_name, folder_name):
     and FITS file URL for all galaxies between z=0.13 to z=0.3, 50000 galaxies at a time
     to prevent timeout.
     """
-    # 
     sdss_chunk = f"""
 SELECT TOP {chunk_size}
 p.objid, s.plate, s.mjd, s.fiberid,
@@ -85,7 +84,7 @@ def merge_csv(files, final_file, final_folder):
     Take a list of CSV files and combine them into a single file.
     """
     outdir = Path(final_folder)
-    outdir.mkdir(exist_ok=True)
+    outdir.mkdir(parents=True, exist_ok=True)
     df_list = [pd.read_csv(f) for f in files]
     combined = pd.concat(df_list, ignore_index=True)
     combined.to_csv(f"{outdir}/{final_file}", index=False)
@@ -98,32 +97,43 @@ def cleanup_files(files):
     for f in files:
         Path(f).unlink(missing_ok=True)
 
-
 def loop_galaxy_chunk(query, chunk_size, last_id, file_name, final_file, folder_name):
     """
     Loop the SQL search until exhausted, at which point concatenate all generated CSV files into a new one.
     """
     csv_file_list = []
     outdir = Path(folder_name)
-    outdir.mkdir(exist_ok=True)
+    outdir.mkdir(parents=True, exist_ok=True)
     while True:
-        try:
-            print(f'Collecting next {chunk_size} galaxies...')
-            last_id, new_file_name = query(chunk_size, last_id, file_name, folder_name)
+        retries = 0
+
+        while retries <= 5: # max retries
+            try:
+                print(f'Collecting next {chunk_size} galaxies...')
+                last_id, new_file_name = query(chunk_size, last_id, file_name, folder_name)
+                break
+                    
+            except Exception as e:
+                retries += 1
+                if retries > 5:
+                    print(f"Exceeded retries at last_id: {last_id}")
+                    raise
+                print(
+                    f'Query attempt failed (attempt {retries}/5)'
+                    f'Waiting 3 seconds before retrying...\n{e}'
+                )
+                time.sleep(3)
             if last_id is None:
                 break
-            else:
-                new_file_name = f"{outdir}\{new_file_name}"
-                csv_file_list.append(new_file_name)
-                print("Success!")
-        except Exception as e:
-            print(f'Error: query failed at {last_id}\n{e}')
-            raise
-    print(f'Finished collecting galaxies. Merging {len(csv_file_list)} CSV files...')
-    merge_csv(csv_file_list, final_file, folder_name)
-    print("Deleting builder files...")
-    cleanup_files(csv_file_list)
-    print("Done!")
+
+            new_file_name = outdir / new_file_name
+            csv_file_list.append(str(new_file_name))
+            print("Success!")
+        print(f'Finished collecting galaxies. Merging {len(csv_file_list)} CSV files...')
+        merge_csv(csv_file_list, final_file, folder_name)
+        print("Deleting builder files...")
+        cleanup_files(csv_file_list)
+        print("Done!")
 
 def download_fits_chunk(df, start, end, outdir="FITS"):
     """
@@ -139,9 +149,9 @@ def download_fits_chunk(df, start, end, outdir="FITS"):
         plate = row["plate"]
         mjd   = row["mjd"]
         fiber = row["fiberid"]
-        url   = f""
+        url   = row["spec_fits_url"]
 
-        filename = f'spec-{plate}-{mjd}-{fiber:04d}.fits'
+        filename = f'spec-{plate:04d}-{mjd}-{fiber:04d}.fits'
         filepath = outdir / filename
 
         if filepath.exists():
@@ -340,7 +350,7 @@ def sort_galaxy(data_dict):
             return 'e(a)'
         else:
             return 'e'
-        
+
 def determine_shape(objid, file_path):
     # Look up if objid is in full_morphology.csv
     file_path = Path(file_path)
@@ -377,7 +387,7 @@ def determine_shape(objid, file_path):
         return shape1
     else:
         return "dontknow"
-    
+
 def physical_to_angular_radius(z, mpc_radius):
     """
     Convert a physical radius (Mpc) at a given redshift to an angular radius in arcminutes.
@@ -427,6 +437,9 @@ def cone_slice_volume_calculator(z, mpc_radius):
     return (1/3) * np.pi * h * (r_near ** 2 + (r_near * r_far) + r_far **2)
 
 def calculate_density(n_neighbors, volume):
+    """
+    Use a galaxies number of neighbors to calculate the number density for a given volume.
+    """
     return n_neighbors / volume
 
 def build_sdss_neighbor_count_query(data_dict, mpc_radius):
@@ -460,11 +473,13 @@ def count_sdss_neighbors(data_dict, mpc_radius):
     result = SDSS.query_sql(sql)
     if result[0][0] is None or 0:
         return 0
-    return result[0][0]-1
+    return result[0][0]-1 # Subtracting target galaxy
 
 def collect_values(files):
     """
-    Store the redshift
+    Store the objid, redshift, D4000n, sigma D4000n, Hdelta EW, Hdelta err, oii EW, oii EW err, 
+    number of neighbors (for 2, 5, 10, and 15 Mpc search windows), number density, galaxy class, and galaxy shape (if available)
+    for every galaxy available. 
     """
     # Store values by class
     class_dict = defaultdict(list)
@@ -478,7 +493,7 @@ def collect_values(files):
         spectrum_data_dict = collect_spectrum_data(file)
         objid = spectrum_data_dict['objid']
         if objid == None:
-            print(f'Failed to find objid for {spectrum_data_dict['fileid']}.')
+            print(f"Failed to find objid for {spectrum_data_dict['fileid']}.")
             continue
         galaxy_class = sort_galaxy(spectrum_data_dict)
         galaxy_shape = determine_shape(objid, "ZOO/full_morphology.csv")
@@ -515,6 +530,8 @@ def collect_values(files):
         shape_dict[galaxy_shape].append(
             {
                 'objid': spectrum_data_dict['objid'],
+                'ra': spectrum_data_dict['ra'],
+                'dec': spectrum_data_dict['dec'],
                 'z': spectrum_data_dict['z'], 
                 'D4000n': spectrum_data_dict['D4000n'], 
                 'sigma_D4000n': spectrum_data_dict['sigma_D4000n'],
@@ -548,172 +565,189 @@ def load_result(filename='result.pkl'):
     """
     with open(filename, 'rb') as f:
         return pickle.load(f)
-
-def bin_environment(dict_key, result, radius_index):
+    
+def bin_environment_by_quartile(dict_key, result, radius_index):
     """
-    Bin galaxies into low, mid_low, mid, mid_high, and high groups at even percentile splits.
+    Bin all galaxies into quartiles of number density N/Mpc^3.
     radius_index: index in search radius list (0 = 2 Mpc, 1 = 5 Mpc, 2 = 10 Mpc, 3 = 15 Mpc.)
     """
     class_or_shape_dict = result[dict_key]
-    class_labels = []
-    D4000n_vals  = []
-    h_delta_vals = []
-    dens_vals    = []
+    class_labels   = []
+    D4000n_vals    = []
+    h_delta_vals   = []
+    density_vals   = []
+    total_rejected = []
+    total_counted  = []
     for galaxy_type, data in class_or_shape_dict.items():
         # Exclude rejected galaxies
-        if '?' in galaxy_type:
+        num_counted_by_class = len(class_or_shape_dict[galaxy_type])
+        total_counted.append(num_counted_by_class)
+        if '?' in galaxy_type or 'dontknow' in galaxy_type:
+            total_rejected.append(num_counted_by_class)
             continue
         for galaxy in data:
             class_labels.append(galaxy_type)
-            dens_vals.append(galaxy['densities'][radius_index])
             D4000n_vals.append(galaxy['D4000n'])
             h_delta_vals.append(galaxy['h_delta_EW'])
-    low_cut, mid_low_cut, mid_high_cut, high_cut = np.percentile(dens_vals, [20, 40, 60, 80])
+            density_vals.append(galaxy['densities'][radius_index])
+
+    density_vals = np.asarray(density_vals, dtype=float)
+    D4000n_vals  = np.asarray(D4000n_vals, dtype=float)
+    h_delta_vals = np.asarray(h_delta_vals, dtype=float)
+    class_labels = np.asarray(class_labels)
+
+    print(f'{sum(total_rejected)} total galaxies failed quality cuts out of {sum(total_counted)}, or {(sum(total_rejected)/(sum(total_counted)-sum(total_rejected)))*100:.2f}% of galaxies.')
+
+    q1, q2, q3 = np.percentile(density_vals, [25, 50, 75])
     # assign bins
-    env_bins = np.empty(len(dens_vals), dtype=object)
-    env_bins[dens_vals <= low_cut] = "low"
-    env_bins[(dens_vals > low_cut) & (dens_vals <= mid_low_cut)] = "mid_low"
-    env_bins[(dens_vals > mid_low_cut) & (dens_vals <= mid_high_cut)] = "mid"
-    env_bins[(dens_vals > mid_high_cut) & (dens_vals <= high_cut)] = "mid_high"
-    env_bins[dens_vals > high_cut] = "high"
+    env_bins = np.empty(len(class_labels), dtype=object)
+    env_bins[density_vals <= q1] = "first"
+    env_bins[(density_vals > q1) & (density_vals <= q2)] = "second"
+    env_bins[(density_vals > q2) & (density_vals <= q3)] = "third"
+    env_bins[density_vals > q3] = "fourth"
+    
+    total_quartile_bins = {}
 
-    return (
-        np.asarray(env_bins), 
-        np.asarray(D4000n_vals), 
-        np.asarray(h_delta_vals), 
-        np.asarray(dens_vals),
-        np.asarray(class_labels)
-    )
-
-def summarize_by_bin(values, bins):
-    values = np.asarray(values)
-    bins = np.asarray(bins)
-    out = {}
-    for b in ["low", "mid_low", "mid", "mid_high", "high"]:
-        mask = bins == b
+    for b in ['first', 'second', 'third', 'fourth']:
+        mask = env_bins == b
         n = np.sum(mask)
         if n == 0:
-            out[b] = {
+            total_quartile_bins[b] = {
                 "mean": np.nan,
+                "median": np.nan,
                 "std": np.nan,
+                "mean stderr": 0,
                 "n": 0,
-                "sem": np.nan
+                "D4000n_vals": D4000n_vals[mask],
+                "h_delta_vals": h_delta_vals[mask],
+                "density_vals": density_vals[mask]
             }
             continue
-        
-        std = np.nanstd(values[mask])
-        mean = np.nanmean(values[mask])
-        out[b] = {
-            "mean": mean,
-            "std": std,
-            "n": n,
-            "sem": std / np.sqrt(np.sum(mask))
-        }
-    return out
+        else:
+            total_quartile_bins[b] = {
+                "mean": np.mean(density_vals[mask]),
+                "median": np.median(density_vals[mask]),
+                "std": np.std(density_vals[mask]),
+                "mean stderr": np.mean(density_vals[mask] / np.sqrt(n)),
+                "n": n,
+                "D4000n_vals": D4000n_vals[mask],
+                "h_delta_vals": h_delta_vals[mask],
+                "density_vals": density_vals[mask] 
 
-def summarize_by_class(dict_key, result, cls, radius_index):
-    """
-    Return the statistical information for the age indicators for a given galaxy class or shape.
-    cls values can be any of 'e(n)', 'e(c)', 'k', 'e(a)', 'e(b)' for class data,
-    or 'elliptical', 'spiralclock', 'spiralanticlock', 'edgeon', merger for shape data.
-    """
-    env_bins, D4000n_vals, h_delta_vals, dens_vals, class_labels = bin_environment(dict_key, result, radius_index)
-    
-    mask = class_labels == cls
-    if np.sum(mask) == 0:
-        raise ValueError(f"No galaxies found for class '{cls}'")
-    cls_densities = dens_vals[mask]
-    cls_D4000n = D4000n_vals[mask]
-    cls_h_delta = h_delta_vals[mask]
+            }
+    return total_quartile_bins
 
-    cls_D4000n_stats = summarize_by_bin(cls_D4000n, env_bins[mask])
-    cls_h_delta_stats = summarize_by_bin(cls_h_delta, env_bins[mask])
-    return cls_D4000n_stats, cls_h_delta_stats
-
-def plot_full_bin_violin(dict_key, result, radius_index):
+def bin_type_by_environment_quartile(dict_key, type_key, result, radius_index):
     """
-    Create violin plots for each available environment bin. 
+    Bin galaxies by type into quartiles of 5th nearest neighbor.
+    For galaxy class, choose between type_keys of: e(n), k, k+a, a+k, e(c), e(b), e(a), e
+    For galaxy shape, choose between type_keys of: elliptical, spiralclock, spiralanticlock, edgeon, merger
     radius_index: index in search radius list (0 = 2 Mpc, 1 = 5 Mpc, 2 = 10 Mpc, 3 = 15 Mpc.)
     """
-    radii = [2, 5, 10, 15]
-    title=f"Age indicators violin plot by bin (search radius = {radii[radius_index]} Mpc)"
-    env_bins, D4000n_vals, h_delta_vals, dens_vals, class_labels = bin_environment(dict_key, result, radius_index)
-    D4000n_vals = np.asarray(D4000n_vals)
-    h_delta_vals = np.asarray(h_delta_vals)
-    env_bins = np.asarray(env_bins)
+    class_or_shape_dict = result[dict_key]
+    galaxy_type = class_or_shape_dict[type_key]
+    D4000n_vals    = []
+    h_delta_vals   = []
+    density_vals   = []
+    total_counted  = len(galaxy_type)
+    for data in galaxy_type:
+        D4000n_vals.append(data['D4000n'])
+        h_delta_vals.append(data['h_delta_EW'])
+        density_vals.append(data['densities'][radius_index])
 
-    bin_labels = ["low", "mid_low", "mid", "mid_high", "high"]
-    D4000n_data = [D4000n_vals[env_bins == b] for b in bin_labels if np.any(env_bins == b)]
-    h_delta_data = [h_delta_vals[env_bins == b] for b in bin_labels if np.any(env_bins == b)]
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
-    ax1.violinplot(D4000n_data, showmeans=True, showmedians=True)
-    ax2.violinplot(h_delta_data, showmeans=True, showmedians=True)
-
-    ax1.set_xticks(np.arange(1, len(D4000n_data) + 1),
-               [b for b in bin_labels if np.any(env_bins == b)])
+    density_vals = np.asarray(density_vals, dtype=float)
+    D4000n_vals  = np.asarray(D4000n_vals, dtype=float)
+    h_delta_vals = np.asarray(h_delta_vals, dtype=float)
     
-    ax2.set_xticks(np.arange(1, len(h_delta_data) + 1),
-               [b for b in bin_labels if np.any(env_bins == b)])
-
-    ax1.set_xlabel("Environment (density bin)")
-    ax1.set_ylabel(r"$D4000_n$")
-
-    ax2.set_xlabel("Environment (density bin)")
-    ax2.set_ylabel(r"$H\delta$")
-
-    fig.suptitle(title)
-    plt.show()
+    q1, q2, q3 = np.percentile(density_vals, [25, 50, 75])
+    # assign bins
+    env_bins = np.empty(total_counted, dtype=object)
+    env_bins[density_vals <= q1] = "first"
+    env_bins[(density_vals > q1) & (density_vals <= q2)] = "second"
+    env_bins[(density_vals > q2) & (density_vals <= q3)] = "third"
+    env_bins[density_vals > q3] = "fourth"
     
-def plot_violin_by_class(dict_key, result, radius_index):
-    """
-    Create violin plots of D4000n and Hδ by environment bin,
-    separately for each spectral class.
-    """
-    radii = [2, 5, 10, 15]
-    bin_labels = ["low", "mid_low", "mid", "mid_high", "high"]
-    classes = ["e(n)", "e(c)", "k", "e(a)", "e(b)"]
+    by_class_quartile_bins = {}
 
-    env_bins, D4000n_vals, h_delta_vals, dens_vals, class_labels = bin_environment(dict_key, result, radius_index)
-
-    for cls in classes:
-        cls_mask = class_labels == cls
-        if np.sum(cls_mask) == 0:
+    for b in ['first', 'second', 'third', 'fourth']:
+        mask = env_bins == b
+        n = np.sum(mask)
+        if n == 0:
+            by_class_quartile_bins[b] = {
+                "type": type_key,
+                "mean": np.nan,
+                "median": np.nan,
+                "std": np.nan,
+                "mean stderr": 0,
+                "n": 0,
+                "D4000n_vals": D4000n_vals[mask],
+                "h_delta_vals": h_delta_vals[mask],
+                "density_vals": density_vals[mask]
+            }
             continue
+        else:
+            by_class_quartile_bins[b] = {
+                "type": type_key,
+                "mean": np.mean(density_vals[mask]),
+                "median": np.median(density_vals[mask]),
+                "std": np.std(density_vals[mask]),
+                "mean stderr": np.mean(density_vals[mask] / np.sqrt(n)),
+                "n": n,
+                "D4000n_vals": D4000n_vals[mask],
+                "h_delta_vals": h_delta_vals[mask],
+                "density_vals": density_vals[mask] 
 
-        cls_bins = env_bins[cls_mask]
-        cls_D4000n = D4000n_vals[cls_mask]
-        cls_hdelta = h_delta_vals[cls_mask]
+            }
+    return by_class_quartile_bins
 
-        D4000n_data = [
-            cls_D4000n[cls_bins == b]
-            for b in bin_labels if np.any(cls_bins == b)
-        ]
-        h_delta_data = [
-            cls_hdelta[cls_bins == b]
-            for b in bin_labels if np.any(cls_bins == b)
-        ]
-        used_bins = [b for b in bin_labels if np.any(cls_bins == b)]
-
+def plot_by_bin(dict_key, result, radius_index):
+    radii = [2, 5, 10, 15]
+    quartile_bins = bin_environment_by_quartile(dict_key, result, radius_index)
+    for quartile, data in quartile_bins.items():
+        if data['n'] == 0:
+            continue
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
+        n = data['n']
+        mean = data['mean']
+        median = data['median']
+        std = data['std']
+        mean_stderr = data['mean stderr']
+        D4000n_vals = data['D4000n_vals']
+        h_delta_vals= data['h_delta_vals']
+        density_vals= data['density_vals']
 
-        ax1.violinplot(D4000n_data, showmeans=True, showmedians=True)
-        ax2.violinplot(h_delta_data, showmeans=True, showmedians=True)
+        ax1.scatter(density_vals, D4000n_vals, s=3)
+        ax1.set_xlabel(r'Density ($N/Mpc^3$)')
+        ax1.set_ylabel(r'$D4000_n$')
 
-        ax1.set_xticks(np.arange(1, len(used_bins) + 1), used_bins)
-        ax2.set_xticks(np.arange(1, len(used_bins) + 1), used_bins)
+        ax2.scatter(density_vals, h_delta_vals, s=3)
+        ax2.set_xlabel(r'Density ($N/Mpc^3$)')
+        ax2.set_ylabel(r'$H\delta$ EW')
+        fig.suptitle(f'{quartile} density quartile ({n} galaxies in quartile, search radius = {radii[radius_index]} Mpc)')
+        plt.show()
 
-        ax1.set_ylabel(r"$D4000_n$")
-        ax2.set_ylabel(r"$H\delta$")
+def plot_by_class_and_bin(dict_key, type_key, result, radius_index):
+    radii = [2, 5, 10, 15]
+    by_class_quartile_bins = bin_type_by_environment_quartile(dict_key, type_key, result, radius_index)
+    for quartile, data in by_class_quartile_bins.items():
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
+        n = data['n']
+        mean = data['mean']
+        median = data['median']
+        std = data['std']
+        mean_stderr = data['mean stderr']
+        D4000n_vals = data['D4000n_vals']
+        h_delta_vals= data['h_delta_vals']
+        density_vals= data['density_vals']
 
-        ax1.set_xlabel("Environment (density bin)")
-        ax2.set_xlabel("Environment (density bin)")
+        ax1.scatter(density_vals, D4000n_vals, s=3)
+        ax1.set_xlabel(r'Density ($N/Mpc^3$)')
+        ax1.set_ylabel(r'$D4000_n$')
 
-        fig.suptitle(
-            f"{cls} galaxies — search radius = {radii[radius_index]} Mpc"
-        )
-
-        plt.tight_layout()
+        ax2.scatter(density_vals, h_delta_vals, s=3)
+        ax2.set_xlabel(r'Density ($N/Mpc^3$)')
+        ax2.set_ylabel(r'$H\delta$ EW')
+        fig.suptitle(f'{type_key} galaxies: {quartile} density quartile (search radius = {radii[radius_index]} Mpc)')
         plt.show()
 
 def plot_env_stats_by_type(dict_key, result):
@@ -824,6 +858,86 @@ def plot_env_stats_by_type(dict_key, result):
 
     plt.show()
 
+def set_bin_num_and_plot(dict_key, result, bins=100):
+    class_or_shape_dict = result[dict_key]
+    D4000n_vals = []
+    h_delta_vals = []
+    z_vals = []
+    for galaxy_type, data in class_or_shape_dict.items():
+        # Exclude rejected_galaxies:
+        if '?' in galaxy_type:
+            continue
+        for galaxy in data:
+            D4000n_vals.append(galaxy['D4000n'])
+            h_delta_vals.append(galaxy['h_delta_EW'])
+            z_vals.append(galaxy['z'])
+    
+    plt.hist(D4000n_vals, bins=bins)
+    plt.xlabel(f"{bins} bins")
+    plt.ylabel(r"$D4000_n$")
+    plt.show()
+
+    plt.hist(h_delta_vals, bins=bins)
+    plt.xlabel(f"{bins} bins")
+    plt.ylabel(r"$H\delta$")
+    plt.show()
+
+    plt.hist(z_vals, bins=bins)
+    plt.xlabel(f"{bins} bins")
+    plt.ylabel(r"redshift")
+    plt.show()
+    
+def plot_vs_density_all_radii(dict_key, result, radii=[2, 5, 10, 15]):
+    class_or_shape_dict = result[dict_key]
+
+    # one figure per dependent variable
+    fig1, ax1 = plt.subplots()
+    fig2, ax2 = plt.subplots()
+    fig3, ax3 = plt.subplots()
+
+    for i, r in enumerate(radii):
+        dens_vals    = []
+        D4000n_vals  = []
+        h_delta_vals = []
+        z_vals       = []
+
+        for galaxy_type, data in class_or_shape_dict.items():
+            if '?' in galaxy_type:
+                continue
+
+            for galaxy in data:
+                dens_vals.append(galaxy['densities'][i])
+                D4000n_vals.append(galaxy['D4000n'])
+                h_delta_vals.append(galaxy['h_delta_EW'])
+                z_vals.append(galaxy['z'])
+
+        dens_vals    = np.asarray(dens_vals)
+        D4000n_vals  = np.asarray(D4000n_vals)
+        h_delta_vals = np.asarray(h_delta_vals)
+        z_vals       = np.asarray(z_vals)
+
+        ax1.scatter(dens_vals, D4000n_vals, s=3, alpha=0.5, label=f"{r} Mpc")
+        ax2.scatter(dens_vals, h_delta_vals, s=3, alpha=0.5, label=f"{r} Mpc")
+        ax3.scatter(dens_vals, z_vals, s=3, alpha=0.5, label=f"{r} Mpc")
+
+    ax1.set_xlabel(r"Number density ($N/\mathrm{Mpc}^3$)")
+    ax1.set_ylabel(r"$D4000_n$")
+    ax1.legend()
+
+    ax2.set_xlabel(r"Number density ($N/\mathrm{Mpc}^3$)")
+    ax2.set_ylabel(r"$H\delta$")
+    ax2.legend()
+
+    ax3.set_xlabel(r"Number density ($N/\mathrm{Mpc}^3$)")
+    ax3.set_ylabel("redshift")
+    ax3.legend()
+
+    fig1.tight_layout()
+    fig2.tight_layout()
+    fig3.tight_layout()
+
+    plt.show()
+
 def plot_age_indicators_and_num_density_for_all(dict_key, result, radius_index=0):
     """
     Plot all galaxy types on a single figure for a given search radius.
@@ -832,6 +946,7 @@ def plot_age_indicators_and_num_density_for_all(dict_key, result, radius_index=0
     class_or_shape_dict = result[dict_key]
     
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), sharex=False)
+    fig2, (ax3, ax4) = plt.subplots(1, 2, figsize=(12, 5), sharex=False)
     
     for galaxy_type, data in class_or_shape_dict.items():
         if '?' in galaxy_type or 'dontknow' in galaxy_type:
@@ -841,20 +956,26 @@ def plot_age_indicators_and_num_density_for_all(dict_key, result, radius_index=0
         D4000n_vals  = []
         h_delta_vals = []
         dens_vals    = []
+        z_vals       = []
 
         for galaxy in data:
             dens_vals.append(galaxy['densities'][radius_index])
             D4000n_vals.append(galaxy['D4000n'])
             h_delta_vals.append(galaxy['h_delta_EW'])
+            z_vals.append(galaxy['z'])
 
         # Convert to arrays
         dens_vals = np.array(dens_vals)
         D4000n_vals = np.array(D4000n_vals)
         h_delta_vals = np.array(h_delta_vals)
+        
 
         # Plot
         ax1.scatter(dens_vals, D4000n_vals, s=3, label=galaxy_type)
         ax2.scatter(dens_vals, h_delta_vals, s=3, label=galaxy_type)
+
+        ax3.scatter(z_vals, D4000n_vals, s=3, label=galaxy_type)
+        ax4.scatter(z_vals, h_delta_vals, s=3, label=galaxy_type)
 
     ax1.set_ylabel(r'$D4000_n$')
     ax1.set_xlabel(r'Number Density ($N/Mpc^3$)')
@@ -866,4 +987,15 @@ def plot_age_indicators_and_num_density_for_all(dict_key, result, radius_index=0
     
     fig.suptitle(f'Number density vs age indicators for all galaxy types ({dict_key})')
     fig.tight_layout()
+
+    ax3.set_ylabel(r'$D4000_n$')
+    ax3.set_xlabel(r'Redshift (z)')
+    ax3.legend()
+    
+    ax4.set_ylabel(r'$H\delta$')
+    ax4.set_xlabel(r'Redshift (z)')
+    ax4.legend()
+    
+    fig2.suptitle(f'Redshift vs age indicators for all galaxy types ({dict_key})')
+    fig2.tight_layout()
     plt.show()
