@@ -98,50 +98,48 @@ def cleanup_files(files):
         Path(f).unlink(missing_ok=True)
 
 def loop_galaxy_chunk(query, chunk_size, last_id, file_name, final_file, folder_name):
-    """
-    Loop the SQL search until exhausted, at which point concatenate all generated CSV files into a new one.
-    """
     csv_file_list = []
     outdir = Path(folder_name)
     outdir.mkdir(parents=True, exist_ok=True)
+
     while True:
         retries = 0
 
-        while retries <= 5: # max retries
+        while retries <= 5:
             try:
-                print(f'Collecting next {chunk_size} galaxies...')
+                print(f'Collecting next {chunk_size} galaxies for {folder_name}...')
                 last_id, new_file_name = query(chunk_size, last_id, file_name, folder_name)
+
+                if last_id is None:
+                    break  # exhausted — exit retry loop
+
+                print(f'Creating builder file: {new_file_name}')
+                csv_file_list.append(str(outdir / new_file_name))
                 break
-                    
+
             except Exception as e:
                 retries += 1
                 if retries > 5:
-                    print(f"Exceeded retries at last_id: {last_id}")
                     raise
-                print(
-                    f'Query attempt failed (attempt {retries}/5)'
-                    f'Waiting 3 seconds before retrying...\n{e}'
-                )
                 time.sleep(3)
-            if last_id is None:
-                break
 
-            new_file_name = outdir / new_file_name
-            csv_file_list.append(str(new_file_name))
-            print("Success!")
-        print(f'Finished collecting galaxies. Merging {len(csv_file_list)} CSV files...')
-        merge_csv(csv_file_list, final_file, folder_name)
-        print("Deleting builder files...")
-        cleanup_files(csv_file_list)
-        print("Done!")
+        if last_id is None:
+            break  # exhausted — exit outer loop
 
-def download_fits_chunk(df, start, end, outdir="FITS"):
+    print(f'Merging {len(csv_file_list)} CSV files for {folder_name}...')
+    merge_csv(csv_file_list, final_file, folder_name)
+    cleanup_files(csv_file_list)
+    print("Done!")
+
+def download_fits_chunk(filename, start, end, outdir="FITS"):
     """
     Uses final SDSS CSV file to fill a FITS folder with the 
     downloaded FITS files of all available galaxies.
     """
     outdir = Path('FITS')
     outdir.mkdir(exist_ok=True)
+
+    df = pd.load_csv(filename, header=0)
 
     for i in range(start, end):
         row = df.iloc[i]
