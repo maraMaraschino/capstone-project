@@ -29,7 +29,7 @@ JOIN SpecObj AS s
 JOIN Galaxy AS g
     ON g.objid = p.objid
     WHERE s.class = 'GALAXY'
-    AND s.z BETWEEN 0.15 AND 0.3
+    AND s.z BETWEEN 0.1397816562350196 AND 0.311104966694253
     AND s.zWarning = 0
     AND p.objid > {last_id}
 ORDER BY p.objid
@@ -66,7 +66,7 @@ JOIN ZooNoSpec AS zns
     ON zns.objid = g.objid
 WHERE 
     s.class = 'GALAXY'
-    AND s.z BETWEEN 0.15 AND 0.3
+    AND s.z BETWEEN 0.1397816562350196 AND 0.311104966694253
     AND s.zWarning = 0
     AND p.objid > {last_id}
 ORDER BY p.objid
@@ -145,24 +145,25 @@ def download_fits_chunk(df, start, end, outdir="FITS"):
 
     for i in range(start, end):
         row = df.iloc[i]
+        if (row['z'] >= 0.15) & (row['z'] <= 0.3):
         
-        plate = row["plate"]
-        mjd   = row["mjd"]
-        fiber = row["fiberid"]
-        url   = row["spec_fits_url"]
+            plate = row["plate"]
+            mjd   = row["mjd"]
+            fiber = row["fiberid"]
+            url   = row["spec_fits_url"]
 
-        filename = f'spec-{plate:04d}-{mjd}-{fiber:04d}.fits'
-        filepath = outdir / filename
+            filename = f'spec-{plate:04d}-{mjd}-{fiber:04d}.fits'
+            filepath = outdir / filename
 
-        if filepath.exists():
-            continue
+            if filepath.exists():
+                continue
 
-        r = requests.get(url, stream=True)
-        r.raise_for_status()
+            r = requests.get(url, stream=True)
+            r.raise_for_status()
 
-        with open(filepath, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
+            with open(filepath, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
 
 def collect_spectrum_data(file):
     """
