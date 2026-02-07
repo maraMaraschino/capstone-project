@@ -1,0 +1,5 @@
+container_image = osdf://ospool/ap40/data/adrian.fisher/mycontainer.sif
+
+exdcutable = run_merge_and_load_pickle_files.sh
+
+arguments = merge_and_load_pickle_files.py 

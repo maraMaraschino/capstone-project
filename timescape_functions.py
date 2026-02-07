@@ -562,19 +562,61 @@ def collect_values(files):
 
     return result
 
-def save_result(result, filename='result.pkl'):
+def load_result(filename):
+    """
+    Load pickle collect_values result after saving with save_result
+    """
+    with open(filename, 'rb') as f:
+        return pickle.load(f)
+
+def save_result(result, filename):
     """
     Quickly save result to disk after running collect_values to avoid running multiple times
     """
     with open(filename, 'wb') as f:
         pickle.dump(result, f)
 
-def load_result(filename='result.pkl'):
-    """
-    Load pickle collect_values result after saving with save_result
-    """
-    with open(filename, 'rb') as f:
-        return pickle.load(f)
+def save_job_pickle(source_folder, out_folder, start, end):
+    files = sorted(Path(source_folder).iterdir())
+    files = files[start:end]
+    result = collect_values(files)
+
+    filename = f'pickle_{start}_{end}.pkl'
+
+    out_path = Path(out_folder)
+    out_path.mkdir(parents=True, exist_ok=True)   # <-- create folder if needed
+
+    path = out_path / filename
+
+    save_result(result, path)
+
+def merge_pickles(source_folder, filename, out_folder):
+    out_path = Path(out_folder)
+    out_path.mkdir(parents=True, exist_ok=True)
+    path = out_path / filename
+
+    merged_class_dict = defaultdict(list)
+    merged_shape_dict = defaultdict(list)
+
+    for file in Path(source_folder).glob("pickle_*"):
+        result = load_result(file)
+
+        # Merge class_dict
+        for galaxy_class, entries in result['class_dict'].items():
+            merged_class_dict[galaxy_class].extend(entries)
+
+        # Merge shape_dict
+        for galaxy_shape, entries in result['shape_dict'].items():
+            merged_shape_dict[galaxy_shape].extend(entries)
+
+    result = {
+        'class_dict': merged_class_dict,
+        'shape_dict': merged_shape_dict
+    }
+
+    save_result(result, path)
+
+    return result
     
 def bin_environment_by_quartile(dict_key, result, radius_index):
     """

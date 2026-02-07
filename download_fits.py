@@ -1,17 +1,17 @@
 import os
 import timescape_functions as tf
 import sys
-
-#scratch = os.environ.get("_CONDOR_SCRATCH_DIR", ".")
-scratch = os.getcwd()
-fits_dir = f"{scratch}/FITS"
-os.makedirs(fits_dir, exist_ok=True)
-
-CHUNK = 500
-TOTAL_ROWS = 377294
+from pathlib import Path
 
 csv_file = sys.argv[1]
-process = int(sys.argv[2])  # $(Process) from Condor
+process = int(sys.argv[2])
+fits_dir = sys.argv[3]
+
+# Always make a local directory
+Path(fits_dir).mkdir(parents=True, exist_ok=True)
+
+CHUNK = 50
+TOTAL_ROWS = 377294
 
 start = process * CHUNK
 end   = min((process + 1) * CHUNK, TOTAL_ROWS)
