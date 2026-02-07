@@ -17,5 +17,6 @@ error  = log/job_$(Cluster)_$(Process).err
 
 request_cpus = 1
 request_memory = 2GB
+request_disk = 2GB
 
 queue 1
