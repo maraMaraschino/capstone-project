@@ -2,11 +2,12 @@ container_image = osdf://ospool/ap40/data/adrian.fisher/mycontainer.sif
 
 executable = run_download_fits.sh
 
-arguments = download_fits_job.py SDSS/full_sdss.csv $(Process)
+arguments = download_fits.py SDSS/full_sdss.csv $(Process)
 
-transfer_input_files = timescape_functions.py SDSS/full_sdss.csv download_fits_job.py
+transfer_input_files = timescape_functions.py, SDSS/full_sdss.csv, download_fits.py
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
+preserve_relative_paths = True
 
 log    = log/job_$(Cluster)_$(Process).log
 output = log/job_$(Cluster)_$(Process).out

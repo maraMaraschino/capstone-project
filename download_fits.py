@@ -2,7 +2,8 @@ import os
 import timescape_functions as tf
 import sys
 
-scratch = os.environ.get("_CONDOR_SCRATCH_DIR", ".")
+#scratch = os.environ.get("_CONDOR_SCRATCH_DIR", ".")
+scratch = os.getcwd()
 fits_dir = f"{scratch}/FITS"
 os.makedirs(fits_dir, exist_ok=True)
 

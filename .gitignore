@@ -1,3 +1,7 @@
 *.fits
 *.csv
 *.sif
+*.err
+*.log
+*.out
+log/*

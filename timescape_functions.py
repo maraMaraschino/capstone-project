@@ -21,7 +21,7 @@ def sdss_chunk_query(chunk_size, last_id, file_name, folder_name):
     """
     sdss_chunk = f"""
 SELECT TOP {chunk_size}
-p.objid, s.plate, s.mjd, s.fiberid,
+p.objid, s.plate, s.mjd, s.fiberid, s.z,
 dbo.fGetUrlFitsSpectrum(s.specObjID) AS spec_fits_url
 FROM PhotoObj AS p
 JOIN SpecObj AS s
@@ -92,7 +92,7 @@ def merge_csv(files, final_file, final_folder):
 
 def cleanup_files(files):
     """
-    Deletes a list files, helping to conserve memory.
+    Deletes list files, helping to conserve memory.
     """
     for f in files:
         Path(f).unlink(missing_ok=True)
@@ -139,7 +139,7 @@ def download_fits_chunk(filename, start, end, outdir="FITS"):
     outdir = Path('FITS')
     outdir.mkdir(exist_ok=True)
 
-    df = pd.load_csv(filename, header=0)
+    df = pd.read_csv(filename, header=0)
 
     for i in range(start, end):
         row = df.iloc[i]
