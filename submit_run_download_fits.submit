@@ -1,19 +1,15 @@
 container_image = osdf:///ospool/ap40/data/adrian.fisher/mycontainer.sif
 executable = run_download_fits.sh
 
-# Arguments: python script, CSV, process number, local scratch FITS folder
 arguments = download_fits.py SDSS/full_sdss.csv $(Process) $_CONDOR_SCRATCH_DIR/FITS
 
-# Transfer small input files only
 transfer_input_files = download_fits.py, timescape_functions.py, SDSS/full_sdss.csv
 should_transfer_files = YES
 preserve_relative_paths = True
 
-# Transfer FITS from scratch to OSDF after job
-transfer_output_files = FITS/*
-transfer_output_remaps = "FITS = osdf:///ospool/ap40/data/adrian.fisher/FITS"
+transfer_output_files = $_CONDOR_SCRATCH_DIR/FITS
+transfer_output_remaps = "$_CONDOR_SCRATCH_DIR/FITS = osdf:///ospool/ap40/data/adrian.fisher/FITS"
 
-# Logging
 log    = log/job_$(Cluster)_$(Process).log
 output = log/job_$(Cluster)_$(Process).out
 error  = log/job_$(Cluster)_$(Process).err
