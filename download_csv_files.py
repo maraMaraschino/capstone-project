@@ -6,7 +6,7 @@ scratch = os.environ.get("_CONDOR_SCRATCH_DIR", ".")
 zoo_dir = f"{scratch}/ZOO"
 sdss_dir = f"{scratch}/SDSS"
 
-#os.makedirs(zoo_dir, exist_ok=True)
+os.makedirs(zoo_dir, exist_ok=True)
 os.makedirs(sdss_dir, exist_ok=True)
 
 try:
