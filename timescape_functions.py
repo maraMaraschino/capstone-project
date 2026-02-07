@@ -21,7 +21,7 @@ def sdss_chunk_query(chunk_size, last_id, file_name, folder_name):
     """
     sdss_chunk = f"""
 SELECT TOP {chunk_size}
-p.objid, s.plate, s.mjd, s.fiberid, s.z,
+p.objid, s.plate, s.mjd, s.fiberid, s.z, p.ra, p.dec,
 dbo.fGetUrlFitsSpectrum(s.specObjID) AS spec_fits_url
 FROM PhotoObj AS p
 JOIN SpecObj AS s
@@ -131,19 +131,19 @@ def loop_galaxy_chunk(query, chunk_size, last_id, file_name, final_file, folder_
     cleanup_files(csv_file_list)
     print("Done!")
 
-def download_fits_chunk(filename, start, end, outdir="FITS"):
+def download_fits_chunk(source_csv_file, start, end, outdir):
     """
     Uses final SDSS CSV file to fill a FITS folder with the 
-    downloaded FITS files of all available galaxies.
+    downloaded FITS files of all available galaxies in the desired redshift range (0.15-0.3).
     """
-    outdir = Path('FITS')
-    outdir.mkdir(exist_ok=True)
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
 
-    df = pd.read_csv(filename, header=0)
+    df = pd.read_csv(source_csv_file, header=0)
 
     for i in range(start, end):
         row = df.iloc[i]
-        if (row['z'] >= 0.15) & (row['z'] <= 0.3):
+        if 0.15 <= row['z'] <= 0.3:
         
             plate = row["plate"]
             mjd   = row["mjd"]
@@ -152,6 +152,11 @@ def download_fits_chunk(filename, start, end, outdir="FITS"):
 
             filename = f'spec-{plate:04d}-{mjd}-{fiber:04d}.fits'
             filepath = outdir / filename
+
+            # Handle non-existing FITS files:
+            if not isinstance(url, str) or not url.strip():
+                print(f"No valid url for {filename}, skipping.")
+                continue
 
             if filepath.exists():
                 continue
@@ -441,38 +446,44 @@ def calculate_density(n_neighbors, volume):
     """
     return n_neighbors / volume
 
-def build_sdss_neighbor_count_query(data_dict, mpc_radius):
+def count_sdss_neighbors_local(data_dict, mpc_radius, sdss_csv_file="SDSS/full_sdss.csv"):
     """
-    Builds an SDSS SQL query that counts galaxies within a physical radius around a target galaxy.
+    Count neighbors using full_sdss.csv file instead of querying SDSS for each galaxy to reduce time.
+    """
+    volume_df = pd.read_csv(sdss_csv_file)
+    ra_all  = volume_df['ra'].values
+    dec_all = volume_df['dec'].values
+    z_all   = volume_df['z'].values
 
-    Returns SQL query string for SDSS CasJobs
-    """
-    ra = data_dict['ra']
-    dec = data_dict['dec']
-    z = data_dict['z']
-    dz = physical_to_delta_z(data_dict['z'], mpc_radius)
-    z_min = z - dz
-    z_max = z + dz
+    ra0  = data_dict['ra']
+    dec0 = data_dict['dec']
+    z0   = data_dict['z']
 
-    radius_arcmin = physical_to_angular_radius(z, mpc_radius)
+    # Angular radius (arcmin)
+    radius_arcmin = physical_to_angular_radius(z0, mpc_radius)
 
-    sql_query = f"""
-SELECT COUNT(*) AS neighbor_count
-FROM SpecObj as g
-WHERE dbo.fDistanceEq(g.ra, g.dec, {ra}, {dec}) < {radius_arcmin}
-    AND g.z BETWEEN {z_min} AND {z_max}
-    """
-    return sql_query
+    # Redshift window
+    dz = physical_to_delta_z(z0, mpc_radius)
+    z_min = z0 - dz
+    z_max = z0 + dz
 
-def count_sdss_neighbors(data_dict, mpc_radius):
-    """
-    Query SDSS and return the number of neighboring galaxies within a physical radius -1 to exclude target galaxy.
-    """
-    sql = build_sdss_neighbor_count_query(data_dict, mpc_radius)
-    result = SDSS.query_sql(sql)
-    if result[0][0] is None or 0:
-        return 0
-    return result[0][0]-1 # Subtracting target galaxy
+    # Redshift filter boolean mask
+    z_mask = (z_all >= z_min) & (z_all <= z_max)
+
+    # Angular separation
+    dra = (ra_all - ra0) * np.cos(np.deg2rad(dec0))
+    ddec = dec_all - dec0
+    ang_sep_deg = np.sqrt(dra ** 2 + ddec ** 2)
+    ang_sep_arcmin = ang_sep_deg * 60
+
+    ang_mask = ang_sep_arcmin < radius_arcmin
+
+    total_mask = z_mask & ang_mask
+
+    count = np.sum(total_mask)
+
+    # Subtract self if included
+    return max(count - 1, 0)
 
 def collect_values(files):
     """
@@ -501,7 +512,7 @@ def collect_values(files):
         n_neighbors = []
         densities = []
         for r in mpc_radii:
-            count = count_sdss_neighbors(spectrum_data_dict, r)
+            count = count_sdss_neighbors_local(spectrum_data_dict, r)
             n_neighbors.append(count)
 
             # Compute frustrum volume for this radius
