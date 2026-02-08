@@ -2,7 +2,7 @@ Bootstrap: docker
 From: hub.opensciencegrid.org/htc/ubuntu:22.04
 
 %files
-    requirements.txt requirements.txt
+    requirements_unpinned.txt requirements_unpinned.txt
 
 %post
     set -e
@@ -28,17 +28,17 @@ From: hub.opensciencegrid.org/htc/ubuntu:22.04
     #. /opt/conda/etc/profile.d/conda.sh
 
     # -----------------------
-    # create environment from requirements.txt
+    # create environment from requirements_unpinned.txt
     # -----------------------
     export PATH="/opt/conda/bin:$PATH"
 
     CONDA_NO_PLUGINS=true conda install -y --solver=classic python=3.10
     python -m pip install --upgrade pip setuptools wheel
-    python -m pip install --no-cache-dir -r requirements.txt
+    python -m pip install --no-cache-dir -r requirements_unpinned.txt
 
 
     # optional but recommended cleanup
-    rm -f requirements.txt
+    rm -f requirements_unpinned.txt
 
 %environment
     export PATH="/opt/conda/bin:$PATH"
