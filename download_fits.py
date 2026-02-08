@@ -2,7 +2,6 @@ import os
 import timescape_functions as tf
 import sys
 from pathlib import Path
-import subprocess
 
 csv_file = sys.argv[1]
 process = int(sys.argv[2])

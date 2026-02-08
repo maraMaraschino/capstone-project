@@ -177,7 +177,7 @@ def collect_spectrum_data(file):
     Flux is negative for absorption spectra, positive for emission.
     """
     # Open file
-    hdul = fits.open(file)
+    hdul = fits.open(file, memmap=False)
     
     # Assign dfs
     hdu     = hdul[0].header
@@ -300,21 +300,21 @@ def collect_spectrum_data(file):
     # Return dictionary
     return spectrum_data_dict
 
-def sort_galaxy(data_dict):
+def sort_galaxy(spectrum_data_dict):
     """
     Use spectrum values to determine the galaxy's spectral class.
     """
     # Assign variables
-    h_delta_EW     = data_dict['h_delta_EW']
-    h_delta_EW_err = data_dict['h_delta_EW_err']
-    oii_EW         = data_dict['oii_EW']
-    oii_EW_err     = data_dict['oii_EW_err']
-    D4000n         = data_dict['D4000n']
-    sigma_D4000n   = data_dict['sigma_D4000n']
-    o_iii          = data_dict['o_iii_flux']
-    h_beta         = data_dict['h_beta_flux']
-    n_ii           = data_dict['n_ii_flux']
-    h_alpha        = data_dict['h_alpha_flux']
+    h_delta_EW     = spectrum_data_dict['h_delta_EW']
+    h_delta_EW_err = spectrum_data_dict['h_delta_EW_err']
+    oii_EW         = spectrum_data_dict['oii_EW']
+    oii_EW_err     = spectrum_data_dict['oii_EW_err']
+    D4000n         = spectrum_data_dict['D4000n']
+    sigma_D4000n   = spectrum_data_dict['sigma_D4000n']
+    o_iii          = spectrum_data_dict['o_iii_flux']
+    h_beta         = spectrum_data_dict['h_beta_flux']
+    n_ii           = spectrum_data_dict['n_ii_flux']
+    h_alpha        = spectrum_data_dict['h_alpha_flux']
 
     # Quality cuts
     if (h_delta_EW_err < 0) or (oii_EW_err < 0):
@@ -355,7 +355,7 @@ def sort_galaxy(data_dict):
         else:
             return 'e'
 
-def determine_shape(objid, file_path):
+def determine_shape(objid, file_path="ZOO/full_morphology"):
     # Look up if objid is in full_morphology.csv
     file_path = Path(file_path)
     with open(file_path, newline='') as f:
@@ -485,6 +485,28 @@ def count_sdss_neighbors_local(data_dict, mpc_radius, sdss_csv_file="SDSS/full_s
     # Subtract self if included
     return max(count - 1, 0)
 
+def construct_url_list(source_csv_file, base_url, start, end):
+    df = pd.read_csv(source_csv_file, header=0)
+    file_list = []
+    for i in range(start, end):
+        row = df.iloc[i]
+        if 0.15 <= row['z'] <= 0.3:
+        
+            plate = row["plate"]
+            mjd   = row["mjd"]
+            fiber = row["fiberid"]
+            url   = row["spec_fits_url"]
+
+            filename = f'spec-{plate:04d}-{mjd}-{fiber:04d}.fits'
+            file_url = f"{base_url}/{filename}"
+            file_list.append(file_url)
+
+            # Handle non-existing FITS files:
+            if not isinstance(url, str) or not url.strip():
+                print(f"No valid url for {filename}, skipping.")
+                continue
+    return file_list
+
 def collect_values(files):
     """
     Store the objid, redshift, D4000n, sigma D4000n, Hdelta EW, Hdelta err, oii EW, oii EW err, 
@@ -496,7 +518,7 @@ def collect_values(files):
     shape_dict = defaultdict(list)
 
     # Radii to calculate neighbors for
-    mpc_radii = [2, 5, 10, 15, 25, 42]
+    mpc_radii = [2, 5, 10, 15, 21, 42]
 
     # Collect values
     for file in files:
@@ -576,10 +598,9 @@ def save_result(result, filename):
     with open(filename, 'wb') as f:
         pickle.dump(result, f)
 
-def save_job_pickle(source_folder, out_folder, start, end):
-    files = sorted(Path(source_folder).iterdir())
-    files = files[start:end]
-    result = collect_values(files)
+def save_job_pickle(source_dir, source_csv_file, out_folder, start, end):
+    file_list = construct_url_list(source_csv_file, source_dir, start, end)
+    result = collect_values(file_list)
 
     filename = f'pickle_{start}_{end}.pkl'
 
