@@ -598,8 +598,8 @@ def save_result(result, filename):
     with open(filename, 'wb') as f:
         pickle.dump(result, f)
 
-def save_job_pickle(source_dir, source_csv_file, out_folder, start, end):
-    file_list = construct_url_list(source_csv_file, source_dir, start, end)
+def save_job_pickle(base_url, source_csv_file, out_folder, start, end):
+    file_list = construct_url_list(source_csv_file, base_url, start, end)
     result = collect_values(file_list)
 
     filename = f'pickle_{start}_{end}.pkl'
