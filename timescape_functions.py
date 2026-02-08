@@ -496,15 +496,17 @@ def construct_url_list(source_csv_file, base_url, start, end):
             mjd   = row["mjd"]
             fiber = row["fiberid"]
             url   = row["spec_fits_url"]
-
             filename = f'spec-{plate:04d}-{mjd}-{fiber:04d}.fits'
-            file_url = f"{base_url}/{filename}"
-            file_list.append(file_url)
 
             # Handle non-existing FITS files:
             if not isinstance(url, str) or not url.strip():
                 print(f"No valid url for {filename}, skipping.")
                 continue
+            
+            file_url = f"{base_url}/{filename}"
+            file_list.append(file_url)
+
+            
     return file_list
 
 def collect_values(files):
