@@ -496,7 +496,7 @@ def collect_values(files):
     shape_dict = defaultdict(list)
 
     # Radii to calculate neighbors for
-    mpc_radii = [2, 5, 10, 15]
+    mpc_radii = [2, 5, 10, 15, 25, 42]
 
     # Collect values
     for file in files:

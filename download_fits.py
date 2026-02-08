@@ -11,7 +11,7 @@ fits_dir = Path(sys.argv[3])  # convert to Path
 # Always make a local directory first
 fits_dir.mkdir(parents=True, exist_ok=True)
 
-CHUNK = 50
+CHUNK = 500
 TOTAL_ROWS = 377294
 
 start = process * CHUNK

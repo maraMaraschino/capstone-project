@@ -1,14 +1,15 @@
-container_image = osdf://ospool/ap40/data/adrian.fisher/mycontainer.sif
-
+container_image = osdf:///ospool/ap40/data/adrian.fisher/mycontainer.sif
 executable = run_create_pickle_files.sh
 
-arguments = create_pickle_files.py FITS $(Process) pickle_folder
+arguments = create_pickle_files.py FITS $(Process) $_CONDOR_SCRATCH_DIR/pickle_folder
 
 transfer_input_files = create_pickle_files.py, timescape_functions.py, FITS, SDSS/full_sdss.csv, ZOO/full_morphology.csv
-
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
-transfer_output_files = pickle_folder
+
+# Transfer the folder from scratch back to your working directory
+transfer_output_files = $_CONDOR_SCRATCH_DIR/pickle_folder
+transfer_output_remaps = "$_CONDOR_SCRATCH_DIR/pickle_folder = pickle_folder"
 
 log    = log/job_$(Cluster)_$(Process).log
 output = log/job_$(Cluster)_$(Process).out
