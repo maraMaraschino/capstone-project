@@ -12,6 +12,7 @@ import astropy.constants as const
 import pickle
 import matplotlib.pyplot as plt
 import time
+from pelicanfs.core import OSDFFileSystem
 
 def sdss_chunk_query(chunk_size, last_id, file_name, folder_name):
     """
@@ -141,9 +142,16 @@ def download_fits_chunk(source_csv_file, start, end, outdir):
 
     df = pd.read_csv(source_csv_file, header=0)
 
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+
     for i in range(start, end):
+
         row = df.iloc[i]
         if 0.15 <= row['z'] <= 0.3:
+            # Don't flood SDSS
+            time.sleep(0.1)
         
             plate = row["plate"]
             mjd   = row["mjd"]
@@ -160,13 +168,17 @@ def download_fits_chunk(source_csv_file, start, end, outdir):
 
             if filepath.exists():
                 continue
+            
+            try:
+                r = requests.get(url, headers=headers, stream=True, timeout=30)
+                r.raise_for_status()
 
-            r = requests.get(url, stream=True)
-            r.raise_for_status()
-
-            with open(filepath, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
+                with open(filepath, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            except requests.exceptions.RequestException as e:
+                print(f"Error downloading {filename}:\n{e}")
+                continue
 
 def collect_spectrum_data(file):
     """

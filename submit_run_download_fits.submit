@@ -1,4 +1,4 @@
-container_image = osdf:///ospool/ap40/data/adrian.fisher/mycontainer.sif
+container_image = osdf:///ospool/ap40/data/adrian.fisher/mycontainer2.sif
 executable = run_download_fits.sh
 
 arguments = download_fits.py SDSS/full_sdss.csv $(Process) $_CONDOR_SCRATCH_DIR/FITS
@@ -16,7 +16,7 @@ error  = log/job_$(Cluster)_$(Process).err
 
 +JobDurationCategory = "Medium"
 request_cpus = 1
-request_memory = 5GB
-request_disk = 30GB
+request_memory = 6GB
+request_disk = 60GB
 
-queue 100
+queue 30

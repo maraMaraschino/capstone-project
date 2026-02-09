@@ -10,10 +10,10 @@ fits_dir = Path(sys.argv[3])  # convert to Path
 # Always make a local directory first
 fits_dir.mkdir(parents=True, exist_ok=True)
 
-CHUNK = 500
+CHUNK = 200
 TOTAL_ROWS = 377294
 
-start = process * CHUNK
+start = (process * CHUNK)
 end   = min((process + 1) * CHUNK, TOTAL_ROWS)
 
 try:
@@ -21,5 +21,3 @@ try:
     tf.download_fits_chunk(csv_file, start, end, fits_dir)
 except Exception as e:
     print(f'Submission failed: {e}\n {start} until {end}')
-
-
