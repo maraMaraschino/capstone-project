@@ -12,6 +12,9 @@ import astropy.constants as const
 import pickle
 import matplotlib.pyplot as plt
 import time
+from scipy import stats
+from scipy.spatial import cKDTree
+from astropy.coordinates import SkyCoord
 from pelicanfs.core import OSDFFileSystem
 
 def sdss_chunk_query(chunk_size, last_id, file_name, folder_name):
@@ -458,15 +461,7 @@ def calculate_density(n_neighbors, volume):
     """
     return n_neighbors / volume
 
-def count_sdss_neighbors_local(data_dict, mpc_radius, sdss_csv_file="SDSS/full_sdss.csv"):
-    """
-    Count neighbors using full_sdss.csv file instead of querying SDSS for each galaxy to reduce time.
-    """
-    volume_df = pd.read_csv(sdss_csv_file)
-    ra_all  = volume_df['ra'].values
-    dec_all = volume_df['dec'].values
-    z_all   = volume_df['z'].values
-
+def count_sdss_neighbors(data_dict, mpc_radius, ra_all, dec_all, z_all):
     ra0  = data_dict['ra']
     dec0 = data_dict['dec']
     z0   = data_dict['z']
@@ -497,6 +492,29 @@ def count_sdss_neighbors_local(data_dict, mpc_radius, sdss_csv_file="SDSS/full_s
     # Subtract self if included
     return max(count - 1, 0)
 
+def find_fifth_nearest_neighbor(ra_all, dec_all, z_all):
+    """
+    Use cKDTree to build a tree out of the sdss csv file of the distances between galaxies. Find the distance to the fifth nearest neighbor (5NN)
+    using both the physical and the comoving distance
+    """
+    # Find 5NN using proper distance
+    physical_distance_all = cosmo.angular_diameter_distance(z_all) # Mpc
+    coords_from_phys = SkyCoord(ra=ra_all*u.deg, dec=dec_all*u.deg, distance=physical_distance_all)
+    xyz_phys = np.vstack(coords_from_phys.cartesian.xyz).T
+    tree_phys = cKDTree(xyz_phys)
+    dis_phys, _ = tree_phys.query(xyz_phys, k=6)
+    fifth_phys = dis_phys[:, 5]
+
+    # Find 5NN using comoving distance
+    comoving_distance_all = cosmo.comoving_distance(z_all) # Mpc
+    coords_from_comv = SkyCoord(ra=ra_all*u.deg, dec=dec_all*u.deg, distance=comoving_distance_all)
+    xyz_comv = np.vstack(coords_from_comv.cartesian.xyz).T
+    tree_comv = cKDTree(xyz_comv)
+    dis_comv, _ = tree_comv.query(xyz_comv, k=6)
+    fifth_comv = dis_comv[:, 5]
+
+    return fifth_phys, fifth_comv
+
 def construct_url_list(source_csv_file, base_url, start, end):
     df = pd.read_csv(source_csv_file, header=0)
     file_list = []
@@ -517,22 +535,33 @@ def construct_url_list(source_csv_file, base_url, start, end):
             
             file_url = f"{base_url}/{filename}"
             file_list.append(file_url)
-
             
     return file_list
 
-def collect_values(files):
+def collect_values(files, csv_file_path):
     """
-    Store the objid, redshift, D4000n, sigma D4000n, Hdelta EW, Hdelta err, oii EW, oii EW err, 
+    Using the FITS files, store the objid, redshift, D4000n, sigma D4000n, Hdelta EW, Hdelta err, oii EW, oii EW err, 
     number of neighbors (for 2, 5, 10, and 15 Mpc search windows), number density, galaxy class, and galaxy shape (if available)
     for every galaxy available. 
     """
-    # Store values by class
+    # Load full_sdss.csv for neighbor counting
+    volume_df = pd.read_csv(csv_file_path)
+    ra_all    = volume_df['ra'].values
+    dec_all   = volume_df['dec'].values
+    z_all     = volume_df['z'].values
+    objid_all = volume_df['objid'].astype(str).values
+    # Collect the index of every object for recall
+    objid_to_index = {str(objid): i for i, objid in enumerate(objid_all)}    
+
+    # Load every galaxy's 5NN
+    fifth_phys_all, fifth_comv_all = find_fifth_nearest_neighbor(ra_all, dec_all, z_all)
+
+    # Initiate type dictionaries
     class_dict = defaultdict(list)
     shape_dict = defaultdict(list)
 
     # Radii to calculate neighbors for
-    mpc_radii = [2, 5, 10, 15, 21, 42]
+    mpc_radii = [2, 5, 10, 15, 21, 42] # cluster core to typical void radius
 
     # Collect values
     for file in files:
@@ -541,14 +570,23 @@ def collect_values(files):
         if objid == None:
             print(f"Failed to find objid for {spectrum_data_dict['fileid']}.")
             continue
+        if objid not in objid_to_index:
+            print(f"Failed to find objid {objid} in csv file...")
+            continue
+        idx = objid_to_index[objid]
+
         galaxy_class = sort_galaxy(spectrum_data_dict)
         galaxy_shape = determine_shape(objid, "ZOO/full_morphology.csv")
+
+        # Grab proper and comoving distances from 5NN
+        fifth_phys = fifth_phys_all[idx]
+        fifth_comv = fifth_comv_all[idx]
 
         # Calcuate neighbor counts and density for each radius
         n_neighbors = []
         densities = []
         for r in mpc_radii:
-            count = count_sdss_neighbors_local(spectrum_data_dict, r)
+            count = count_sdss_neighbors(spectrum_data_dict, r, ra_all, dec_all, z_all)
             n_neighbors.append(count)
 
             # Compute frustrum volume for this radius
@@ -559,7 +597,9 @@ def collect_values(files):
         class_dict[galaxy_class].append(
             {
                 'objid': spectrum_data_dict['objid'],
-                'z': spectrum_data_dict['z'], 
+                'z': spectrum_data_dict['z'],
+                'ra': spectrum_data_dict['ra'],
+                'dec': spectrum_data_dict['dec'],
                 'D4000n': spectrum_data_dict['D4000n'], 
                 'sigma_D4000n': spectrum_data_dict['sigma_D4000n'],
                 'h_delta_EW': spectrum_data_dict['h_delta_EW'], 
@@ -568,6 +608,8 @@ def collect_values(files):
                 'oii_EW_err': spectrum_data_dict['oii_EW_err'],
                 'n_neighbors': n_neighbors,
                 'densities': densities,
+                'fifth_nn_phys': fifth_phys,
+                'fifth_nn_comv': fifth_comv,
                 'galaxy_shape': galaxy_shape
             }
         )
@@ -578,7 +620,9 @@ def collect_values(files):
                 'objid': spectrum_data_dict['objid'],
                 'ra': spectrum_data_dict['ra'],
                 'dec': spectrum_data_dict['dec'],
-                'z': spectrum_data_dict['z'], 
+                'z': spectrum_data_dict['z'],
+                'ra': spectrum_data_dict['ra'],
+                'dec': spectrum_data_dict['dec'],
                 'D4000n': spectrum_data_dict['D4000n'], 
                 'sigma_D4000n': spectrum_data_dict['sigma_D4000n'],
                 'h_delta_EW': spectrum_data_dict['h_delta_EW'], 
@@ -587,6 +631,8 @@ def collect_values(files):
                 'oii_EW_err': spectrum_data_dict['oii_EW_err'],
                 'n_neighbors': n_neighbors,
                 'densities': densities,
+                'fifth_nn_phys': fifth_phys,
+                'fifth_nn_comv': fifth_comv,
                 'galaxy_class': galaxy_class
             }
         )
