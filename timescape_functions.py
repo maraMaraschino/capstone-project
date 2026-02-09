@@ -143,6 +143,8 @@ def download_fits_chunk(source_csv_file, start, end, outdir):
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
+    existing = {p.name for p in outdir.glob("spec-*.fits")}
+
     df = pd.read_csv(source_csv_file, header=0)
 
     headers = {
@@ -162,14 +164,16 @@ def download_fits_chunk(source_csv_file, start, end, outdir):
             url   = row["spec_fits_url"]
 
             filename = f'spec-{plate:04d}-{mjd}-{fiber:04d}.fits'
+
+            if filename in existing:
+                print(f"{filename} already exists... skipping")
+                continue
+
             filepath = outdir / filename
 
             # Handle non-existing FITS files:
             if not isinstance(url, str) or not url.strip():
                 print(f"No valid url for {filename}, skipping.")
-                continue
-
-            if filepath.exists():
                 continue
             
             try:
@@ -179,6 +183,8 @@ def download_fits_chunk(source_csv_file, start, end, outdir):
                 with open(filepath, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
                         f.write(chunk)
+
+                    existing.add(filename)
             except requests.exceptions.RequestException as e:
                 print(f"Error downloading {filename}:\n{e}")
                 continue
