@@ -10,11 +10,11 @@ fits_dir = Path(sys.argv[3])  # convert to Path
 # Always make a local directory first
 fits_dir.mkdir(parents=True, exist_ok=True)
 
-CHUNK = 200
+CHUNK = 10
 TOTAL_ROWS = 377294
 
-start = (process * CHUNK) + 40160
-end   = min((process + 1) * CHUNK, TOTAL_ROWS) + 40160
+start = (process * CHUNK)
+end   = min((process + 1) * CHUNK, TOTAL_ROWS)
 
 try:
     print(f'Writing {end-start} FITS files to {fits_dir}... ')
