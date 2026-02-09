@@ -13,8 +13,8 @@ fits_dir.mkdir(parents=True, exist_ok=True)
 CHUNK = 200
 TOTAL_ROWS = 377294
 
-start = (process * CHUNK)
-end   = min((process + 1) * CHUNK, TOTAL_ROWS)
+start = (process * CHUNK) + 40160
+end   = min((process + 1) * CHUNK, TOTAL_ROWS) + 40160
 
 try:
     print(f'Writing {end-start} FITS files to {fits_dir}... ')
