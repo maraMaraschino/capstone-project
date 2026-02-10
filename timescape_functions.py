@@ -650,19 +650,19 @@ def collect_values(files, csv_file_path):
 
     return result
 
-def load_result(filename):
-    """
-    Load pickle collect_values result after saving with save_result
-    """
-    with open(filename, 'rb') as f:
-        return pickle.load(f)
-
 def save_result(result, filename):
     """
     Quickly save result to disk after running collect_values to avoid running multiple times
     """
     with open(filename, 'wb') as f:
         pickle.dump(result, f)
+
+def load_result(filename):
+    """
+    Load pickle collect_values result after saving with save_result
+    """
+    with open(filename, 'rb') as f:
+        return pickle.load(f)
 
 def save_job_pickle(base_url, source_csv_file, out_folder, start, end):
     file_list = construct_url_list(source_csv_file, base_url, start, end)

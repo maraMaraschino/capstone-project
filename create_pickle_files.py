@@ -5,9 +5,9 @@ from pathlib import Path
 import pandas as pd
 
 #scratch = os.getcwd()
-base_url = sys.argv[1]
-process = int(sys.argv[2])
-out_folder = sys.argv[3]
+#base_url = sys.argv[1]
+process = int(sys.argv[1])
+out_folder = sys.argv[2]
 
 chunk = 10
 source_csv_file = "SDSS/full_sdss.csv"
@@ -19,7 +19,7 @@ end = min((process + 1) * chunk, total_files)
 
 filename = f"pickle_file_{start}_{end}.pkl"
 
-print("BASE_URL:", base_url)
+#print("BASE_URL:", base_url)
 print("FILES FOUND:", total_files)
 
 try:
