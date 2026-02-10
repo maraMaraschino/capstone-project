@@ -15,7 +15,7 @@ import time
 from scipy import stats
 from scipy.spatial import cKDTree
 from astropy.coordinates import SkyCoord
-from pelicanfs.core import OSDFFileSystem
+#from pelicanfs.core import OSDFFileSystem
 
 def sdss_chunk_query(chunk_size, last_id, file_name, folder_name):
     """
