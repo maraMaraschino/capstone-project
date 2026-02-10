@@ -1,4 +1,4 @@
-container_image = osdf:///ospool/ap40/data/adrian.fisher/mycontainer.sif
+container_image = osdf:///ospool/ap40/data/adrian.fisher/mycontainer2.sif
 executable = run_create_pickle_files.sh
 
 arguments = create_pickle_files.py $(Process) builder_pickle_files
