@@ -1,17 +1,15 @@
 container_image = osdf:///ospool/ap40/data/adrian.fisher/mycontainer2.sif
+
 executable = run_create_pickle_files.sh
 
-arguments = create_pickle_files.py $(Process) builder_pickle_files
+arguments = SDSS/full_sdss.csv builder_pickle_folder $(Process)
 
-transfer_input_files = create_pickle_files.py, timescape_functions.py, SDSS/full_sdss.csv, ZOO/full_morphology.csv
+transfer_input_files = create_pickle_files.py, timescape_functions.py, SDSS/full_sdss.csv, ZOO/full_morphology.csv, job_list.txt
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
 preserve_relative_paths = True
 
-# Transfer the folder from scratch back to your working directory
-transfer_output_files = builder_pickle_files.tar
-# Remap tar file to /ospool directory and rename it something unique
-transfer_output_remaps = "builder_pickle_files.tar = osdf:///ospool/ap40/data/adrian.fisher/builder_pickle_files_$(Cluster).tar"
+transfer_output_files = builder_pickle_folder
 
 log    = log/job_$(Cluster)_$(Process).log
 output = log/job_$(Cluster)_$(Process).out
@@ -19,6 +17,6 @@ error  = log/job_$(Cluster)_$(Process).err
 
 request_cpus = 1
 request_memory = 2GB
-request_disk = 2GB
+request_disk = 3GB
 
-queue 1
+queue 20

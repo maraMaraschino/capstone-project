@@ -1,17 +1,20 @@
 import os
 import timescape_functions as tf
 import sys
+import pandas as pd
 from pathlib import Path
 
 csv_file = sys.argv[1]
+len_csv = pd.read_csv(csv_file)
+print(f'Total files to attempt to download: {len(len_csv)}')
 process = int(sys.argv[2])
 fits_dir = Path(sys.argv[3])  # convert to Path
 
 # Always make a local directory first
 fits_dir.mkdir(parents=True, exist_ok=True)
 
-CHUNK = 10
-TOTAL_ROWS = 377294
+CHUNK = 1000
+TOTAL_ROWS = len(len_csv)
 
 start = (process * CHUNK)
 end   = min((process + 1) * CHUNK, TOTAL_ROWS)

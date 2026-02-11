@@ -11,14 +11,14 @@ os.makedirs(sdss_dir, exist_ok=True)
 
 try:
     tf.loop_galaxy_chunk(
-        tf.galaxy_zoo_chunk_query, 500, 0, "galaxy_zoo_morphology_until_", "full_morphology.csv", zoo_dir,
+        tf.galaxy_zoo_chunk_query, 500, 0, "galaxy_zoo_morphology_until_", "full_morphology_2.csv", zoo_dir,
     )
 except Exception as e:
     print(f"ZOO loop failed: {e}")
 
 try:
     tf.loop_galaxy_chunk(
-        tf.sdss_chunk_query, 500, 0, "sdss_db_", "full_sdss.csv", sdss_dir,
+        tf.sdss_chunk_query, 500, 0, "sdss_db_", "full_sdss.csv_2", sdss_dir,
     )
 except Exception as e:
     print(f"SDSS loop failed: {e}")

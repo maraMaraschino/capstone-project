@@ -70,7 +70,7 @@ JOIN ZooNoSpec AS zns
     ON zns.objid = g.objid
 WHERE 
     s.class = 'GALAXY'
-    AND s.z BETWEEN 0.1397816562350196 AND 0.311104966694253
+    AND s.z BETWEEN 0.15 AND 0.3
     AND s.zWarning = 0
     AND p.objid > {last_id}
 ORDER BY p.objid
@@ -154,6 +154,7 @@ def download_fits_chunk(source_csv_file, start, end, outdir):
     for i in range(start, end):
 
         row = df.iloc[i]
+        # Only select files in volume-limited range
         if 0.15 <= row['z'] <= 0.3:
             # Don't flood SDSS
             time.sleep(0.1)
@@ -162,11 +163,13 @@ def download_fits_chunk(source_csv_file, start, end, outdir):
             mjd   = row["mjd"]
             fiber = row["fiberid"]
             url   = row["spec_fits_url"]
+            url   = url.replace("http://", "https://")
+
 
             filename = f'spec-{plate:04d}-{mjd}-{fiber:04d}.fits'
 
             if filename in existing:
-                print(f"{filename} already exists... skipping")
+                print(f"{filename} already exists. Skipping...")
                 continue
 
             filepath = outdir / filename
@@ -177,6 +180,8 @@ def download_fits_chunk(source_csv_file, start, end, outdir):
                 continue
             
             try:
+                # Don't flood url requests
+                time.sleep(0.1)
                 r = requests.get(url, headers=headers, stream=True, timeout=30)
                 r.raise_for_status()
 
@@ -664,18 +669,19 @@ def load_result(filename):
     with open(filename, 'rb') as f:
         return pickle.load(f)
 
-def save_job_pickle(base_url, source_csv_file, out_folder, start, end):
-    file_list = construct_url_list(source_csv_file, base_url, start, end)
-    result = collect_values(file_list)
+def save_job_pickle(file_line, sdss_csv_path, out_folder, job_index):
+    """
+    Process a single line from job_list.txt, save as a pickle.
+    """
+    # Convert line to a list of file paths
+    file_list = file_line.strip().split()
 
-    filename = f'pickle_{start}_{end}.pkl'
-
+    result = collect_values(file_list, sdss_csv_path)
     out_path = Path(out_folder)
-    out_path.mkdir(parents=True, exist_ok=True)   # <-- create folder if needed
+    out_path.mkdir(parents=True, exist_ok=True)
+    filename = f"pickle_{job_index}.pkl"
 
-    path = out_path / filename
-
-    save_result(result, path)
+    save_result(result, filename)
 
 def merge_pickles(source_folder, filename, out_folder):
     out_path = Path(out_folder)

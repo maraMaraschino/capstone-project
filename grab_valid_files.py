@@ -1,14 +1,15 @@
 # Test function to create list of valid FITS files to pickle
-import timescape_functions as tf
 from astropy.io import fits
 import pandas as pd
-import os
 import sys
 from pathlib import Path
 
-fits_dir = Path("FITS")
-file_list = [f for f in fits_dir.iterdir() if f.is_file()]
-file_list = file_list[:20]
+input_csv = sys.argv[1]
+output_csv = sys.argv[2]
+
+fits_dir = Path("/mnt")
+file_list = [f for f in fits_dir.iterdir() if f.is_file() and f.suffix.lower() == '.fits']
+print(f'Found {len(file_list)} FITS files...')
 
 def grab_files(filelist, csv_file_path, output_csv):
     valid_files = []
@@ -50,16 +51,4 @@ def grab_files(filelist, csv_file_path, output_csv):
     # Convert to csv
     out_df.to_csv(output_csv, index=False)
 
-grab_files(file_list, "SDSS/full_sdss.csv", "valid_fits_files.csv")
-
-
-# have grab_files return csv file
-# cp grab_valid_files.py /ospool/ap40/data/adrian.fisher/FITS/
-# apptainer shell --bind .:/mnt /ospool/ap40/data/adrian.fisher/mycontainer2.sif
-# run python script from mnt directory 
-# python3 grab_valid_files.py
-# grab valid files in apptainer shell - return to mnt
-# new function to split files by job and return jobs.txt file
-# each line on jobs.txt is a list of files that are valid with osdf:///ospool/ap40/data/adrian.fisher/FITS/ in front
-# transfer_input_files = $(file_list)
-# queue file_list from jobs.txt
+grab_files(file_list, input_csv, output_csv)
