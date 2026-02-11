@@ -181,7 +181,7 @@ def download_fits_chunk(source_csv_file, start, end, outdir):
             
             try:
                 # Don't flood url requests
-                time.sleep(0.1)
+                time.sleep(30)
                 r = requests.get(url, headers=headers, stream=True, timeout=30)
                 r.raise_for_status()
 

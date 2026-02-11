@@ -11,9 +11,9 @@ preserve_relative_paths = True
 
 transfer_output_files = builder_pickle_folder
 
-log    = pickle_log/job_$(Cluster)_$(Process).log
-output = pickle_log/job_$(Cluster)_$(Process).out
-error  = pickle_log/job_$(Cluster)_$(Process).err
+log    = pickle_log_2/job_$(Cluster)_$(Process).log
+output = pickle_log_2/job_$(Cluster)_$(Process).out
+error  = pickle_log_2/job_$(Cluster)_$(Process).err
 
 request_cpus = 1
 request_memory = 2GB
