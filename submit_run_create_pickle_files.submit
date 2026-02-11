@@ -4,19 +4,19 @@ executable = run_create_pickle_files.sh
 
 arguments = SDSS/full_sdss.csv builder_pickle_folder $(Process)
 
-transfer_input_files = create_pickle_files.py, timescape_functions.py, SDSS/full_sdss.csv, ZOO/full_morphology.csv, job_list.txt
+transfer_input_files = $(file_line) create_pickle_files.py, timescape_functions.py, SDSS/full_sdss.csv, ZOO/full_morphology.csv
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
 preserve_relative_paths = True
 
 transfer_output_files = builder_pickle_folder
 
-log    = log/job_$(Cluster)_$(Process).log
-output = log/job_$(Cluster)_$(Process).out
-error  = log/job_$(Cluster)_$(Process).err
+log    = pickle_log/job_$(Cluster)_$(Process).log
+output = pickle_log/job_$(Cluster)_$(Process).out
+error  = pickle_log/job_$(Cluster)_$(Process).err
 
 request_cpus = 1
 request_memory = 2GB
 request_disk = 3GB
 
-queue 20
+queue file_line from jobs.txt
