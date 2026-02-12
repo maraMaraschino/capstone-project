@@ -6,3 +6,5 @@
 *.out
 log/*
 *.txt
+*.pkl
+*.png
