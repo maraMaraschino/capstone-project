@@ -2,21 +2,22 @@ container_image = osdf:///ospool/ap40/data/adrian.fisher/mycontainer2.sif
 
 executable = run_create_pickle_files.sh
 
+# create_pickle_files.py "$JOB_LINE" "$SDSS_CSV" "$OUT_FOLDER" "$PROCESS"
 arguments = SDSS/full_sdss.csv builder_pickle_folder $(Process)
 
-transfer_input_files = $(file_line) create_pickle_files.py, timescape_functions.py, SDSS/full_sdss.csv, ZOO/full_morphology.csv
+transfer_input_files = $(file_line), jobs.txt, create_pickle_files.py, timescape_functions.py, SDSS/full_sdss.csv, ZOO/full_morphology.csv
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
 preserve_relative_paths = True
 
 transfer_output_files = builder_pickle_folder
 
-log    = pickle_log_2/job_$(Cluster)_$(Process).log
-output = pickle_log_2/job_$(Cluster)_$(Process).out
-error  = pickle_log_2/job_$(Cluster)_$(Process).err
+log    = pickle_log_3/job_$(Cluster)_$(Process).log
+output = pickle_log_3/job_$(Cluster)_$(Process).out
+error  = pickle_log_3/job_$(Cluster)_$(Process).err
 
 request_cpus = 1
-request_memory = 2GB
-request_disk = 3GB
+request_memory = 1GB
+request_disk = 1GB
 
 queue file_line from jobs.txt

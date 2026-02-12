@@ -16,6 +16,7 @@ from scipy import stats
 from scipy.spatial import cKDTree
 from astropy.coordinates import SkyCoord
 import random
+import os
 #from pelicanfs.core import OSDFFileSystem
 
 def sdss_chunk_query(chunk_size, last_id, file_name, folder_name):
@@ -165,7 +166,6 @@ def download_fits_chunk(source_csv_file, start, end, outdir):
             fiber = row["fiberid"]
             url   = row["spec_fits_url"]
             url   = url.replace("http://", "https://")
-
 
             filename = f'spec-{plate:04d}-{mjd}-{fiber:04d}.fits'
 
@@ -675,14 +675,17 @@ def save_job_pickle(file_line, sdss_csv_path, out_folder, job_index):
     Process a single line from job_list.txt, save as a pickle.
     """
     # Convert line to a list of file paths
-    file_list = file_line.strip().split()
+    file_list = file_line.strip().split(',')
+    file_list = [os.path.basename(f) for f in file_list]
+    print(file_list)
 
     result = collect_values(file_list, sdss_csv_path)
     out_path = Path(out_folder)
     out_path.mkdir(parents=True, exist_ok=True)
-    filename = f"pickle_{job_index}.pkl"
-
+    filename = out_path / f"pickle_{job_index}.pkl"
+    print("saving result...")
     save_result(result, filename)
+    print('saved result.')
 
 def merge_pickles(source_folder, filename, out_folder):
     out_path = Path(out_folder)

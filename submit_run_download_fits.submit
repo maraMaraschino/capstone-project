@@ -14,7 +14,7 @@ log    = log/job_$(Cluster)_$(Process).log
 output = log/job_$(Cluster)_$(Process).out
 error  = log/job_$(Cluster)_$(Process).err
 
-+JobDurationCategory = "Medium"
++JobDurationCategory = "Long"
 request_cpus = 1
 request_memory = 10GB
 request_disk = 80GB
