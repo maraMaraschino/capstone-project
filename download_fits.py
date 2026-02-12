@@ -13,12 +13,11 @@ fits_dir = Path(sys.argv[3])  # convert to Path
 # Always make a local directory first
 fits_dir.mkdir(parents=True, exist_ok=True)
 
-CHUNK = 5000
-OFFSET = 40365
+CHUNK = 1000
 TOTAL_ROWS = len(len_csv)
 
-start = (process * CHUNK) + OFFSET
-end   = min(((process + 1) * CHUNK) + OFFSET, TOTAL_ROWS)
+start = (process * CHUNK)
+end   = min(((process + 1) * CHUNK), TOTAL_ROWS)
 
 try:
     print(f'Writing {end-start} FITS files to {fits_dir}... ')
