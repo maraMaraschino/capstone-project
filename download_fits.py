@@ -13,8 +13,8 @@ fits_dir = Path(sys.argv[3])  # convert to Path
 # Always make a local directory first
 fits_dir.mkdir(parents=True, exist_ok=True)
 
-CHUNK = 10000
-OFFSET = 50365
+CHUNK = 5000
+OFFSET = 150365
 TOTAL_ROWS = len(len_csv)
 
 start = (process * CHUNK) + OFFSET

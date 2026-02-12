@@ -15,6 +15,7 @@ import time
 from scipy import stats
 from scipy.spatial import cKDTree
 from astropy.coordinates import SkyCoord
+import random
 #from pelicanfs.core import OSDFFileSystem
 
 def sdss_chunk_query(chunk_size, last_id, file_name, folder_name):
@@ -181,7 +182,7 @@ def download_fits_chunk(source_csv_file, start, end, outdir):
             
             try:
                 # Don't flood url requests
-                time.sleep(30)
+                time.sleep(random.randint(15,25))
                 r = requests.get(url, headers=headers, stream=True, timeout=30)
                 r.raise_for_status()
 
