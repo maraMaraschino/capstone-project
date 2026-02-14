@@ -350,6 +350,8 @@ def sort_galaxy(spectrum_data_dict):
         return '?: D4000n quality cut'
     elif (h_delta_EW_err >= 0.8):
         return '?: H delta quality cut'
+    elif (oii_EW / oii_EW_err) < 2:
+        return '?: O II quality cut'
     
     # AGN before other classes
     # Avoiding division by zero/require positive values
