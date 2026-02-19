@@ -13,9 +13,9 @@ when_to_transfer_output = ON_EXIT
 transfer_output_files = $_CONDOR_SCRATCH_DIR/FITS_$(Process)
 transfer_output_remaps = "$_CONDOR_SCRATCH_DIR/FITS_$(Process) = osdf:///ospool/ap40/data/adrian.fisher/FITS_$(Process)"
 
-log    = log_5/job_$(Cluster)_$(Process).log
-output = log_5/job_$(Cluster)_$(Process).out
-error  = log_5/job_$(Cluster)_$(Process).err
+log    = log_6/job_$(Cluster)_$(Process).log
+output = log_6/job_$(Cluster)_$(Process).out
+error  = log_6/job_$(Cluster)_$(Process).err
 
 +JobDurationCategory = "Medium"
 request_cpus = 1

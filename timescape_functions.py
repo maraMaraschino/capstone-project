@@ -150,8 +150,7 @@ def download_fits_chunk(source_csv_file, start, end, outdir):
     existing = {p.name for p in outdir.glob("spec-*.fits")}
 
     df = pd.read_csv(source_csv_file, header=0)
-    df = df[(df['z'] >= 0.15) & (df <= 0.3)]
-    print(f'Rows {start} to {end} have {len(df)} files in valid redshift range...')
+    valid_df = df[(df['z'] >= 0.15) & (df['z'] <= 0.3)]
 
     headers = {
         "User-Agent": "Mozilla/5.0"
