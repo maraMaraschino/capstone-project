@@ -144,10 +144,14 @@ def download_fits_chunk(source_csv_file, start, end, outdir):
     """
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
+    print(f'download_fits_chunk running from {start} to {end}...')
+    print(f'Attempting to return {end-start} files to {outdir}...')
 
     existing = {p.name for p in outdir.glob("spec-*.fits")}
 
     df = pd.read_csv(source_csv_file, header=0)
+    df = df[(df['z'] >= 0.15) & (df <= 0.3)]
+    print(f'Rows {start} to {end} have {len(df)} files in valid redshift range...')
 
     headers = {
         "User-Agent": "Mozilla/5.0"
@@ -157,43 +161,44 @@ def download_fits_chunk(source_csv_file, start, end, outdir):
 
         row = df.iloc[i]
         # Only select files in volume-limited range
-        if 0.15 <= row['z'] <= 0.3:
-            # Don't flood SDSS
-            time.sleep(0.1)
         
-            plate = row["plate"]
-            mjd   = row["mjd"]
-            fiber = row["fiberid"]
-            url   = row["spec_fits_url"]
-            url   = url.replace("http://", "https://")
+        plate = row["plate"]
+        mjd   = row["mjd"]
+        fiber = row["fiberid"]
+        url   = row["spec_fits_url"]
+        url   = url.replace("http://", "https://")
 
-            filename = f'spec-{plate:04d}-{mjd}-{fiber:04d}.fits'
+        filename = f'spec-{plate:04d}-{mjd}-{fiber:04d}.fits'
 
-            if filename in existing:
-                print(f"{filename} already exists. Skipping...")
-                continue
+        if filename in existing:
+            print(f"{filename} already exists. Skipping...")
+            continue
 
-            filepath = outdir / filename
+        filepath = outdir / filename
 
-            # Handle non-existing FITS files:
-            if not isinstance(url, str) or not url.strip():
-                print(f"No valid url for {filename}, skipping.")
-                continue
-            
-            try:
-                # Don't flood url requests
-                time.sleep(random.randint(15,25))
-                r = requests.get(url, headers=headers, stream=True, timeout=30)
-                r.raise_for_status()
+        # Handle non-existing FITS files:
+        if not isinstance(url, str) or not url.strip():
+            print(f"No valid url for {filename}, skipping.")
+            continue
+        
+        print("Next: ", filepath)
+        
+        try:
+            # Don't flood url requests
+            timesleep = random.randint(10,25)
+            print(f'Waiting for {timesleep} seconds before downloading row {i}...')
+            time.sleep(timesleep)
+            r = requests.get(url, headers=headers, stream=True, timeout=30)
+            r.raise_for_status()
+            print(f'Downloading file...')
+            with open(filepath, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
 
-                with open(filepath, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-
-                    existing.add(filename)
-            except requests.exceptions.RequestException as e:
-                print(f"Error downloading {filename}:\n{e}")
-                continue
+                existing.add(filename)
+        except requests.exceptions.RequestException as e:
+            print(f"Error downloading {filename}:\n{e}")
+            continue
 
 def collect_spectrum_data(file):
     """
