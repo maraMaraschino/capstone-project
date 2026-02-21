@@ -3,8 +3,6 @@ executable = run_download_fits.sh
 
 arguments = download_fits.py SDSS/partial_sdss.csv $(Process) $_CONDOR_SCRATCH_DIR/FITS_$(Process)
 
-max_materialize = 50
-
 transfer_input_files = download_fits.py, timescape_functions.py, SDSS/partial_sdss.csv
 should_transfer_files = YES
 preserve_relative_paths = True
@@ -22,4 +20,4 @@ request_cpus = 1
 request_memory = 10GB
 request_disk = 30GB
 
-queue 169
+queue 3

@@ -20,7 +20,7 @@ def merge_folders(top_folder, merge_folder):
             new_path = merge_path / file
             shutil.move(old_path, new_path)
         print(f'Finished moving {dir} to {merge_folder}. Deleting empty folder...')
-        Path.rmdir(dir)
+        dir_path.rmdir()
         print('Deleted!')
     print("Done!")
 
