@@ -15,7 +15,7 @@ fits_dir.mkdir(parents=True, exist_ok=True)
 
 print(f'csv_file: {csv_file}\nlen_csv: {len(len_csv)}\nprocess: {process}\nfits_dir: {fits_dir}')
 
-CHUNK = 1000
+CHUNK = 168
 TOTAL_ROWS = len(len_csv)
 
 start = (process * CHUNK)
