@@ -2,7 +2,7 @@ container_image = osdf:///ospool/ap40/data/adrian.fisher/mycontainer2.sif
 
 executable = run_create_pickle_files.sh
 
-max_materialize = 10
+max_retries = 15
 
 # create_pickle_files.py "$JOB_LINE" "$SDSS_CSV" "$OUT_FOLDER" "$PROCESS"
 arguments = SDSS/full_sdss.csv builder_pickle_folder $(Process)
@@ -20,6 +20,6 @@ error  = pickle_log/job_$(Cluster)_$(Process).err
 
 request_cpus = 1
 request_memory = 2GB
-request_disk = 3GB
+request_disk = 6GB
 
 queue file_line from jobs.txt

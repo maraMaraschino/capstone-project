@@ -583,7 +583,11 @@ def collect_values(files, csv_file_path):
 
     # Collect values
     for file in files:
-        spectrum_data_dict = collect_spectrum_data(file)
+        try:
+            spectrum_data_dict = collect_spectrum_data(file)
+        except Exception as e:
+            print(f'FAILED {file}: {e}')
+            continue
         objid = spectrum_data_dict['objid']
         if objid == None:
             print(f"Failed to find objid for {spectrum_data_dict['fileid']}.")
@@ -683,7 +687,6 @@ def save_job_pickle(file_line, sdss_csv_path, out_folder, job_index):
     # Convert line to a list of file paths
     file_list = file_line.strip().split(',')
     file_list = [os.path.basename(f) for f in file_list]
-    print(file_list)
 
     result = collect_values(file_list, sdss_csv_path)
     out_path = Path(out_folder)

@@ -12,6 +12,6 @@ with open("jobs.txt") as f:
     lines = f.readlines()
 
 line_arg = lines[process].strip()
-print(f'{line_arg}\n{sdss_csv_path}\n{out_folder}\n{process}')
+print(f'{sdss_csv_path}\n{out_folder}\n{process}')
 
 tf.save_job_pickle(line_arg, sdss_csv_path, out_folder, process)
