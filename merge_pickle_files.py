@@ -4,8 +4,8 @@ import sys
 from pathlib import Path
 
 source_folder = sys.argv[1]
-out_folder = sys.argv[2]
-filename = "full_pickle_file.pkl"
+filename = sys.argv[2]
+out_folder = sys.argv[3]
 
 try:
     tf.merge_pickles(source_folder, filename, out_folder)

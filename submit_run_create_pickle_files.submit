@@ -19,7 +19,7 @@ output = pickle_log/job_$(Cluster)_$(Process).out
 error  = pickle_log/job_$(Cluster)_$(Process).err
 
 request_cpus = 1
-request_memory = 2GB
+request_memory = 500MB
 request_disk = 6GB
 
 queue file_line from jobs.txt

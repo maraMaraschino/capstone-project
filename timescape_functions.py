@@ -700,10 +700,13 @@ def merge_pickles(source_folder, filename, out_folder):
     out_path = Path(out_folder)
     out_path.mkdir(parents=True, exist_ok=True)
     path = out_path / filename
+    print(f'Final file name: {path}')
 
     merged_class_dict = defaultdict(list)
     merged_shape_dict = defaultdict(list)
 
+    files = list(Path(source_folder).glob("pickle_*"))
+    print(f"Files found: {len(files)}")
     for file in Path(source_folder).glob("pickle_*"):
         result = load_result(file)
 
@@ -720,7 +723,10 @@ def merge_pickles(source_folder, filename, out_folder):
         'shape_dict': merged_shape_dict
     }
 
-    save_result(result, path)
+    try:
+        save_result(result, path)
+    except Exception as e:
+        print(f'Error saving final file:\n{e}')
 
     return result
     
