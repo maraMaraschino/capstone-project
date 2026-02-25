@@ -670,8 +670,12 @@ def save_result(result, filename):
     """
     Quickly save result to disk after running collect_values to avoid running multiple times
     """
-    with open(filename, 'wb') as f:
+    tmp = str(filename) + ".tmp"
+
+    with open(tmp, 'wb') as f:
         pickle.dump(result, f)
+
+    os.replace(tmp, filename)
 
 def load_result(filename):
     """
@@ -700,16 +704,34 @@ def merge_pickles(source_folder, filename, out_folder):
     out_path = Path(out_folder)
     out_path.mkdir(parents=True, exist_ok=True)
     path = out_path / filename
+    print(f"Source folder: {source_folder}")
     print(f'Final file name: {path}')
+    print(f'Out folder: {out_folder}')
 
     merged_class_dict = defaultdict(list)
     merged_shape_dict = defaultdict(list)
 
     files = list(Path(source_folder).glob("pickle_*"))
     print(f"Files found: {len(files)}")
-    for file in Path(source_folder).glob("pickle_*"):
-        result = load_result(file)
 
+    bad = 0
+    for file in files:
+        # Skip empty files
+        if file.stat().st_size == 0:
+            print(f'Skipping empty file: {file}')
+            bad += 1
+            continue
+        try:     
+            result = load_result(file)
+        except EOFError:
+            print(f'Skipping truncated pickle: {file}')
+            bad += 1
+            continue
+        except Exception as e:
+            print(f"Skipping unreadable pickle: {file}")
+            bad += 1
+            continue
+        
         # Merge class_dict
         for galaxy_class, entries in result['class_dict'].items():
             merged_class_dict[galaxy_class].extend(entries)
@@ -717,6 +739,7 @@ def merge_pickles(source_folder, filename, out_folder):
         # Merge shape_dict
         for galaxy_shape, entries in result['shape_dict'].items():
             merged_shape_dict[galaxy_shape].extend(entries)
+    print(f'Bad files skipped: {bad}')
 
     result = {
         'class_dict': merged_class_dict,
