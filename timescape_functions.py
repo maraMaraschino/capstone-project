@@ -425,70 +425,58 @@ def determine_shape(objid, file_path="ZOO/full_morphology"):
     else:
         return "dontknow"
 
-def physical_to_angular_radius(z, mpc_radius):
+#-----------------------------------------------
+# Transform search radius into theta and delta z
+#-----------------------------------------------
+
+def length_to_radius(z, mpc_radius, dis_type):
     """
-    Convert a physical radius (Mpc) at a given redshift to an angular radius in arcminutes.
+    Convert a radius (Mpc) at a given redshift to an angular radius in arcminutes
+    using either proper distance or comoving distance values.
     Use the redshift to return the distance to the object in Mpc as well.
     """
     # Convert z to Mpc
-    distance        = cosmo.angular_diameter_distance(z)
+    if dis_type == 'proper':
+        distance = cosmo.angular_diameter_distance(z)
+    if dis_type == 'comoving':
+        distance = cosmo.comoving_distance(z)
     # Calculate diameter theta
     theta           = np.arctan((mpc_radius * u.Mpc) / distance)
     # Convert to arcmin and radius
-    radius_arcmin   = theta.to(u.arcmin).value/2
+    radius_arcmin   = theta.to(u.arcmin).value
     return radius_arcmin
 
-def physical_to_delta_z(z, mpc_radius):
+def length_to_delta_z(z, mpc_radius, dis_type):
     """
-    Convert a physical line-of-sight distance (Mpc) into a redshift half-width.
+    Given a redshift and search window, find the delta z using either proper or comoving distance.
     """
     # Hubble parameter at redshift z
+    if dis_type == 'proper':
+        r = mpc_radius * u.Mpc
+    if dis_type == 'comoving':
+        r = mpc_radius * (1 + z) * u.Mpc
     Hz = cosmo.H(z) # km / s / Mpc
 
     # Convert H(z)/c to 1/distance units
     c = const.c.to(u.km/u.s)
-    delta_z = ((Hz / c) * mpc_radius * u.Mpc).decompose()
+    delta_z = ((Hz / c) * r).decompose()
 
     return delta_z.value
 
-def cone_slice_volume_calculator(z, mpc_radius):
-    """
-    Calculate the volume of the search area using the equation of a frustrum.
-    """
-    distance_center = cosmo.angular_diameter_distance(z)
-    theta = np.arctan(mpc_radius / distance_center.value) # keep in radians
+#-------------------------------------------------------
+# Count number of neighbors and calculate number density
+#-------------------------------------------------------
 
-    # Half-width along line of sight in redshift
-    delta_z = physical_to_delta_z(z, mpc_radius)
-
-    # Distance to near and far planes
-    near_distance = cosmo.comoving_distance(z-delta_z).value
-    far_distance = cosmo.comoving_distance(z+delta_z).value
-
-    # Calculate near and far radii
-    r_near = np.tan(theta) * near_distance
-    r_far  = np.tan(theta) * far_distance
-
-    h = far_distance-near_distance
-
-    return (1/3) * np.pi * h * (r_near ** 2 + (r_near * r_far) + r_far **2)
-
-def calculate_density(n_neighbors, volume):
-    """
-    Use a galaxies number of neighbors to calculate the number density for a given volume.
-    """
-    return n_neighbors / volume
-
-def count_sdss_neighbors(data_dict, mpc_radius, ra_all, dec_all, z_all):
+def count_sdss_neighbors(data_dict, mpc_radius, dis_type, ra_all, dec_all, z_all):
     ra0  = data_dict['ra']
     dec0 = data_dict['dec']
     z0   = data_dict['z']
 
     # Angular radius (arcmin)
-    radius_arcmin = physical_to_angular_radius(z0, mpc_radius)
+    radius_arcmin = length_to_radius(z0, mpc_radius, dis_type)
 
     # Redshift window
-    dz = physical_to_delta_z(z0, mpc_radius)
+    dz = length_to_delta_z(z0, mpc_radius, dis_type)
     z_min = z0 - dz
     z_max = z0 + dz
 
@@ -509,6 +497,46 @@ def count_sdss_neighbors(data_dict, mpc_radius, ra_all, dec_all, z_all):
 
     # Subtract self if included
     return max(count - 1, 0)
+
+def cone_slice_volume_calculator(z, mpc_radius, dis_type):
+    """
+    Calculate the volume of the search area using the equation of a frustrum.
+    """
+    if dis_type == 'proper':
+        distance_center = cosmo.angular_diameter_distance(z)
+    if dis_type == 'comoving':
+        distance_center = cosmo.comoving_distance(z)
+
+    theta = np.arctan((mpc_radius * u.Mpc) / distance_center) # keep in radians
+
+    # Half-width along line of sight in redshift
+    delta_z = length_to_delta_z(z, mpc_radius, dis_type)
+
+    # Distance to near and far planes
+    if dis_type == 'proper':
+        near_distance = cosmo.angular_diameter_distance(z-delta_z).value
+        far_distance = cosmo.angular_diameter_distance(z+delta_z).value
+    if dis_type == 'comoving':
+        near_distance = cosmo.comoving_distance(z-delta_z).value
+        far_distance = cosmo.comoving_distance(z+delta_z).value
+
+    # Calculate near and far radii
+    r_near = np.tan(theta) * near_distance
+    r_far  = np.tan(theta) * far_distance
+
+    h = far_distance-near_distance
+
+    return (1/3) * np.pi * h * (r_near ** 2 + (r_near * r_far) + r_far **2)
+
+def calculate_density(n_neighbors, volume):
+    """
+    Use a galaxy's number of neighbors to calculate the number density for a given volume.
+    """
+    return n_neighbors / volume
+
+#------------------------------------------------
+# Find 5NN for both proper and comoving distances
+#------------------------------------------------
 
 def find_fifth_nearest_neighbor(ra_all, dec_all, z_all):
     """
@@ -533,6 +561,140 @@ def find_fifth_nearest_neighbor(ra_all, dec_all, z_all):
 
     return fifth_phys, fifth_comv
 
+#-------------------------------------------------------------------
+# Collect all relevant values and load them into a result dictionary
+#-------------------------------------------------------------------
+
+def collect_values(files, csv_file_path):
+    """
+    Using the FITS files, store the objid, redshift, D4000n, sigma D4000n, Hdelta EW, Hdelta err, oii EW, oii EW err, 
+    number density (for 2, 5, 10, 15, 21, and 42 Mpc search windows), galaxy class, and galaxy shape (if available)
+    for every galaxy available. 
+    """
+    # Load full_sdss.csv for neighbor counting
+    volume_df = pd.read_csv(csv_file_path, dtype={'objid': str})
+    ra_all    = volume_df['ra'].values
+    dec_all   = volume_df['dec'].values
+    z_all     = volume_df['z'].values
+    objid_all = volume_df['objid'].astype(str).values
+    # Collect the index of every object for recall
+    objid_to_index = {str(objid): i for i, objid in enumerate(objid_all)}    
+
+    # Load every galaxy's 5NN
+    fifth_phys_all, fifth_comv_all = find_fifth_nearest_neighbor(ra_all, dec_all, z_all)
+
+    # Initiate type dictionaries
+    class_dict = defaultdict(list)
+    shape_dict = defaultdict(list)
+
+    # Radii to calculate neighbors for
+    mpc_radii = [2, 5, 10, 15, 21, 42] # cluster core to typical void radius
+
+    # Collect values
+    for file in files:
+        spectrum_data_dict = collect_spectrum_data(file)
+        objid = spectrum_data_dict['objid']
+
+        # Only select data in the chosen redshift range
+        z = spectrum_data_dict['z']
+        if (z < 0.15) or (z > 0.3):
+            continue
+        
+        # Skip missing objids
+        if objid == None:
+            print(f"Failed to find objid for {spectrum_data_dict['fileid']}.")
+            continue
+        if objid not in objid_to_index:
+            print(f"Failed to find objid {objid} in csv file (from {spectrum_data_dict['fileid']})")
+            continue
+        
+        idx = objid_to_index[objid]
+
+        galaxy_class = sort_galaxy(spectrum_data_dict)
+        galaxy_shape = determine_shape(objid, "ZOO/full_morphology.csv")
+
+        # Grab proper and comoving distances from 5NN
+        fifth_nn_proper = fifth_phys_all[idx]
+        fifth_nn_comv = fifth_comv_all[idx]
+
+        # Calcuate neighbor counts and density for each radius using proper and comoving distances
+        proper_n_neighbors = []
+        proper_densities   = []
+
+        comoving_n_neighbors = []
+        comoving_densities   = []
+        for r in mpc_radii:
+            #-------------------------------
+            # Collect proper distance values
+            #-------------------------------
+            proper_nn_count = count_sdss_neighbors(spectrum_data_dict, r, 'proper', ra_all, dec_all, z_all)
+            proper_n_neighbors.append(proper_nn_count)
+
+            # Compute frustrum volume for this radius
+            proper_volume = cone_slice_volume_calculator(spectrum_data_dict['z'], r, 'proper')
+            proper_densities.append(calculate_density(proper_nn_count, proper_volume))
+
+            #---------------------------------
+            # Collect comoving distance values
+            #---------------------------------
+            comoving_nn_count = count_sdss_neighbors(spectrum_data_dict, r, 'comoving', ra_all, dec_all, z_all)
+            comoving_n_neighbors.append(comoving_nn_count)
+
+            # Compute frustrum volume for this radius
+            comoving_volume = cone_slice_volume_calculator(spectrum_data_dict['z'], r, 'comoving')
+            comoving_densities.append(calculate_density(comoving_nn_count, comoving_volume))
+
+        # Store all data to sort by galaxy class
+        class_dict[galaxy_class].append(
+            {
+                'objid': spectrum_data_dict['objid'],
+                'z': spectrum_data_dict['z'],
+                'ra': spectrum_data_dict['ra'],
+                'dec': spectrum_data_dict['dec'],
+                'D4000n': spectrum_data_dict['D4000n'], 
+                'sigma_D4000n': spectrum_data_dict['sigma_D4000n'],
+                'h_delta_EW': spectrum_data_dict['h_delta_EW'], 
+                'h_delta_EW_err': spectrum_data_dict['h_delta_EW_err'],
+                'oii_EW': spectrum_data_dict['oii_EW'],
+                'oii_EW_err': spectrum_data_dict['oii_EW_err'],
+                'proper_densities': proper_densities,
+                'comoving_densities': comoving_densities,
+                'fifth_nn_proper': fifth_nn_proper,
+                'fifth_nn_comv': fifth_nn_comv,
+                'galaxy_shape': galaxy_shape
+            }
+        )
+
+        # Store all data to sort by galaxy shape
+        shape_dict[galaxy_shape].append(
+            {
+                'objid': spectrum_data_dict['objid'],
+                'ra': spectrum_data_dict['ra'],
+                'dec': spectrum_data_dict['dec'],
+                'z': spectrum_data_dict['z'],
+                'ra': spectrum_data_dict['ra'],
+                'dec': spectrum_data_dict['dec'],
+                'D4000n': spectrum_data_dict['D4000n'], 
+                'sigma_D4000n': spectrum_data_dict['sigma_D4000n'],
+                'h_delta_EW': spectrum_data_dict['h_delta_EW'], 
+                'h_delta_EW_err': spectrum_data_dict['h_delta_EW_err'],
+                'oii_EW': spectrum_data_dict['oii_EW'],
+                'oii_EW_err': spectrum_data_dict['oii_EW_err'],
+                'proper_densities': proper_densities,
+                'comoving_densities': comoving_densities,
+                'fifth_nn_proper': fifth_nn_proper,
+                'fifth_nn_comv': fifth_nn_comv,
+                'galaxy_class': galaxy_class
+            }
+        )
+
+    result = {
+        'class_dict': class_dict,
+        'shape_dict': shape_dict
+    }
+
+    return result
+
 def construct_url_list(source_csv_file, base_url, start, end):
     df = pd.read_csv(source_csv_file, header=0)
     file_list = []
@@ -555,116 +717,6 @@ def construct_url_list(source_csv_file, base_url, start, end):
             file_list.append(file_url)
             
     return file_list
-
-def collect_values(files, csv_file_path):
-    """
-    Using the FITS files, store the objid, redshift, D4000n, sigma D4000n, Hdelta EW, Hdelta err, oii EW, oii EW err, 
-    number of neighbors (for 2, 5, 10, and 15 Mpc search windows), number density, galaxy class, and galaxy shape (if available)
-    for every galaxy available. 
-    """
-    # Load full_sdss.csv for neighbor counting
-    volume_df = pd.read_csv(csv_file_path)
-    ra_all    = volume_df['ra'].values
-    dec_all   = volume_df['dec'].values
-    z_all     = volume_df['z'].values
-    objid_all = volume_df['objid'].astype(str).values
-    # Collect the index of every object for recall
-    objid_to_index = {str(objid): i for i, objid in enumerate(objid_all)}    
-
-    # Load every galaxy's 5NN
-    fifth_phys_all, fifth_comv_all = find_fifth_nearest_neighbor(ra_all, dec_all, z_all)
-
-    # Initiate type dictionaries
-    class_dict = defaultdict(list)
-    shape_dict = defaultdict(list)
-
-    # Radii to calculate neighbors for
-    mpc_radii = [2, 5, 10, 15, 21, 42] # cluster core to typical void radius
-
-    # Collect values
-    for file in files:
-        try:
-            spectrum_data_dict = collect_spectrum_data(file)
-        except Exception as e:
-            print(f'FAILED {file}: {e}')
-            continue
-        objid = spectrum_data_dict['objid']
-        if objid == None:
-            print(f"Failed to find objid for {spectrum_data_dict['fileid']}.")
-            continue
-        if objid not in objid_to_index:
-            print(f"Failed to find objid {objid} in csv file...")
-            continue
-        idx = objid_to_index[objid]
-
-        galaxy_class = sort_galaxy(spectrum_data_dict)
-        galaxy_shape = determine_shape(objid, "ZOO/full_morphology.csv")
-
-        # Grab proper and comoving distances from 5NN
-        fifth_phys = fifth_phys_all[idx]
-        fifth_comv = fifth_comv_all[idx]
-
-        # Calcuate neighbor counts and density for each radius
-        n_neighbors = []
-        densities = []
-        for r in mpc_radii:
-            count = count_sdss_neighbors(spectrum_data_dict, r, ra_all, dec_all, z_all)
-            n_neighbors.append(count)
-
-            # Compute frustrum volume for this radius
-            volume = cone_slice_volume_calculator(spectrum_data_dict['z'], r)
-            densities.append(calculate_density(count, volume))
-
-        # Store all data to sort by galaxy class
-        class_dict[galaxy_class].append(
-            {
-                'objid': spectrum_data_dict['objid'],
-                'z': spectrum_data_dict['z'],
-                'ra': spectrum_data_dict['ra'],
-                'dec': spectrum_data_dict['dec'],
-                'D4000n': spectrum_data_dict['D4000n'], 
-                'sigma_D4000n': spectrum_data_dict['sigma_D4000n'],
-                'h_delta_EW': spectrum_data_dict['h_delta_EW'], 
-                'h_delta_EW_err': spectrum_data_dict['h_delta_EW_err'],
-                'oii_EW': spectrum_data_dict['oii_EW'],
-                'oii_EW_err': spectrum_data_dict['oii_EW_err'],
-                'n_neighbors': n_neighbors,
-                'densities': densities,
-                'fifth_nn_phys': fifth_phys,
-                'fifth_nn_comv': fifth_comv,
-                'galaxy_shape': galaxy_shape
-            }
-        )
-
-        # Store all data to sort by galaxy shape
-        shape_dict[galaxy_shape].append(
-            {
-                'objid': spectrum_data_dict['objid'],
-                'ra': spectrum_data_dict['ra'],
-                'dec': spectrum_data_dict['dec'],
-                'z': spectrum_data_dict['z'],
-                'ra': spectrum_data_dict['ra'],
-                'dec': spectrum_data_dict['dec'],
-                'D4000n': spectrum_data_dict['D4000n'], 
-                'sigma_D4000n': spectrum_data_dict['sigma_D4000n'],
-                'h_delta_EW': spectrum_data_dict['h_delta_EW'], 
-                'h_delta_EW_err': spectrum_data_dict['h_delta_EW_err'],
-                'oii_EW': spectrum_data_dict['oii_EW'],
-                'oii_EW_err': spectrum_data_dict['oii_EW_err'],
-                'n_neighbors': n_neighbors,
-                'densities': densities,
-                'fifth_nn_phys': fifth_phys,
-                'fifth_nn_comv': fifth_comv,
-                'galaxy_class': galaxy_class
-            }
-        )
-
-    result = {
-        'class_dict': class_dict,
-        'shape_dict': shape_dict
-    }
-
-    return result
 
 def save_result(result, filename):
     """
@@ -753,436 +805,3 @@ def merge_pickles(source_folder, filename, out_folder):
 
     return result
     
-def bin_environment_by_quartile(dict_key, result, radius_index):
-    """
-    Bin all galaxies into quartiles of number density N/Mpc^3.
-    radius_index: index in search radius list (0 = 2 Mpc, 1 = 5 Mpc, 2 = 10 Mpc, 3 = 15 Mpc.)
-    """
-    class_or_shape_dict = result[dict_key]
-    class_labels   = []
-    D4000n_vals    = []
-    h_delta_vals   = []
-    density_vals   = []
-    total_rejected = []
-    total_counted  = []
-    for galaxy_type, data in class_or_shape_dict.items():
-        # Exclude rejected galaxies
-        num_counted_by_class = len(class_or_shape_dict[galaxy_type])
-        total_counted.append(num_counted_by_class)
-        if '?' in galaxy_type or 'dontknow' in galaxy_type:
-            total_rejected.append(num_counted_by_class)
-            continue
-        for galaxy in data:
-            class_labels.append(galaxy_type)
-            D4000n_vals.append(galaxy['D4000n'])
-            h_delta_vals.append(galaxy['h_delta_EW'])
-            density_vals.append(galaxy['densities'][radius_index])
-
-    density_vals = np.asarray(density_vals, dtype=float)
-    D4000n_vals  = np.asarray(D4000n_vals, dtype=float)
-    h_delta_vals = np.asarray(h_delta_vals, dtype=float)
-    class_labels = np.asarray(class_labels)
-
-    print(f'{sum(total_rejected)} total galaxies failed quality cuts out of {sum(total_counted)}, or {(sum(total_rejected)/(sum(total_counted)-sum(total_rejected)))*100:.2f}% of galaxies.')
-
-    q1, q2, q3 = np.percentile(density_vals, [25, 50, 75])
-    # assign bins
-    env_bins = np.empty(len(class_labels), dtype=object)
-    env_bins[density_vals <= q1] = "first"
-    env_bins[(density_vals > q1) & (density_vals <= q2)] = "second"
-    env_bins[(density_vals > q2) & (density_vals <= q3)] = "third"
-    env_bins[density_vals > q3] = "fourth"
-    
-    total_quartile_bins = {}
-
-    for b in ['first', 'second', 'third', 'fourth']:
-        mask = env_bins == b
-        n = np.sum(mask)
-        if n == 0:
-            total_quartile_bins[b] = {
-                "mean": np.nan,
-                "median": np.nan,
-                "std": np.nan,
-                "mean stderr": 0,
-                "n": 0,
-                "D4000n_vals": D4000n_vals[mask],
-                "h_delta_vals": h_delta_vals[mask],
-                "density_vals": density_vals[mask]
-            }
-            continue
-        else:
-            total_quartile_bins[b] = {
-                "mean": np.mean(density_vals[mask]),
-                "median": np.median(density_vals[mask]),
-                "std": np.std(density_vals[mask]),
-                "mean stderr": np.mean(density_vals[mask] / np.sqrt(n)),
-                "n": n,
-                "D4000n_vals": D4000n_vals[mask],
-                "h_delta_vals": h_delta_vals[mask],
-                "density_vals": density_vals[mask] 
-
-            }
-    return total_quartile_bins
-
-def bin_type_by_environment_quartile(dict_key, type_key, result, radius_index):
-    """
-    Bin galaxies by type into quartiles of 5th nearest neighbor.
-    For galaxy class, choose between type_keys of: e(n), k, k+a, a+k, e(c), e(b), e(a), e
-    For galaxy shape, choose between type_keys of: elliptical, spiralclock, spiralanticlock, edgeon, merger
-    radius_index: index in search radius list (0 = 2 Mpc, 1 = 5 Mpc, 2 = 10 Mpc, 3 = 15 Mpc.)
-    """
-    class_or_shape_dict = result[dict_key]
-    galaxy_type = class_or_shape_dict[type_key]
-    D4000n_vals    = []
-    h_delta_vals   = []
-    density_vals   = []
-    total_counted  = len(galaxy_type)
-    for data in galaxy_type:
-        D4000n_vals.append(data['D4000n'])
-        h_delta_vals.append(data['h_delta_EW'])
-        density_vals.append(data['densities'][radius_index])
-
-    density_vals = np.asarray(density_vals, dtype=float)
-    D4000n_vals  = np.asarray(D4000n_vals, dtype=float)
-    h_delta_vals = np.asarray(h_delta_vals, dtype=float)
-    
-    q1, q2, q3 = np.percentile(density_vals, [25, 50, 75])
-    # assign bins
-    env_bins = np.empty(total_counted, dtype=object)
-    env_bins[density_vals <= q1] = "first"
-    env_bins[(density_vals > q1) & (density_vals <= q2)] = "second"
-    env_bins[(density_vals > q2) & (density_vals <= q3)] = "third"
-    env_bins[density_vals > q3] = "fourth"
-    
-    by_class_quartile_bins = {}
-
-    for b in ['first', 'second', 'third', 'fourth']:
-        mask = env_bins == b
-        n = np.sum(mask)
-        if n == 0:
-            by_class_quartile_bins[b] = {
-                "type": type_key,
-                "mean": np.nan,
-                "median": np.nan,
-                "std": np.nan,
-                "mean stderr": 0,
-                "n": 0,
-                "D4000n_vals": D4000n_vals[mask],
-                "h_delta_vals": h_delta_vals[mask],
-                "density_vals": density_vals[mask]
-            }
-            continue
-        else:
-            by_class_quartile_bins[b] = {
-                "type": type_key,
-                "mean": np.mean(density_vals[mask]),
-                "median": np.median(density_vals[mask]),
-                "std": np.std(density_vals[mask]),
-                "mean stderr": np.mean(density_vals[mask] / np.sqrt(n)),
-                "n": n,
-                "D4000n_vals": D4000n_vals[mask],
-                "h_delta_vals": h_delta_vals[mask],
-                "density_vals": density_vals[mask] 
-
-            }
-    return by_class_quartile_bins
-
-def plot_by_bin(dict_key, result, radius_index):
-    radii = [2, 5, 10, 15]
-    quartile_bins = bin_environment_by_quartile(dict_key, result, radius_index)
-    for quartile, data in quartile_bins.items():
-        if data['n'] == 0:
-            continue
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
-        n = data['n']
-        mean = data['mean']
-        median = data['median']
-        std = data['std']
-        mean_stderr = data['mean stderr']
-        D4000n_vals = data['D4000n_vals']
-        h_delta_vals= data['h_delta_vals']
-        density_vals= data['density_vals']
-
-        ax1.scatter(density_vals, D4000n_vals, s=3)
-        ax1.set_xlabel(r'Density ($N/Mpc^3$)')
-        ax1.set_ylabel(r'$D4000_n$')
-
-        ax2.scatter(density_vals, h_delta_vals, s=3)
-        ax2.set_xlabel(r'Density ($N/Mpc^3$)')
-        ax2.set_ylabel(r'$H\delta$ EW')
-        fig.suptitle(f'{quartile} density quartile ({n} galaxies in quartile, search radius = {radii[radius_index]} Mpc)')
-        plt.show()
-
-def plot_by_class_and_bin(dict_key, type_key, result, radius_index):
-    radii = [2, 5, 10, 15]
-    by_class_quartile_bins = bin_type_by_environment_quartile(dict_key, type_key, result, radius_index)
-    for quartile, data in by_class_quartile_bins.items():
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
-        n = data['n']
-        mean = data['mean']
-        median = data['median']
-        std = data['std']
-        mean_stderr = data['mean stderr']
-        D4000n_vals = data['D4000n_vals']
-        h_delta_vals= data['h_delta_vals']
-        density_vals= data['density_vals']
-
-        ax1.scatter(density_vals, D4000n_vals, s=3)
-        ax1.set_xlabel(r'Density ($N/Mpc^3$)')
-        ax1.set_ylabel(r'$D4000_n$')
-
-        ax2.scatter(density_vals, h_delta_vals, s=3)
-        ax2.set_xlabel(r'Density ($N/Mpc^3$)')
-        ax2.set_ylabel(r'$H\delta$ EW')
-        fig.suptitle(f'{type_key} galaxies: {quartile} density quartile (search radius = {radii[radius_index]} Mpc)')
-        plt.show()
-
-def plot_env_stats_by_type(dict_key, result):
-    """
-    Return a dictionary with the mean, min, and max for the number of neighbors and number density of each search radius for each galaxy class, 
-    as well as the percentage of galaxies that were rejected by quality cuts.
-    """
-    radii=[2, 5, 10, 15]
-    class_or_shape_dict = result[dict_key]
-    total_counted = []
-    total_rejected = []
-    values_dict = {}
-    for galaxy_type, data in class_or_shape_dict.items():
-        num_counted_by_class = len(class_or_shape_dict[galaxy_type])
-        if '?' in galaxy_type or 'dontknow' in galaxy_type:
-            total_rejected.append(num_counted_by_class)
-            continue
-        total_counted.append(num_counted_by_class)
-        values_dict[galaxy_type] = {
-        'num_counted': num_counted_by_class,
-        'by_radius': []
-    }
-
-        for i, radius in enumerate(radii):
-            nnb_vals = []
-            dens_vals = []
-            for galaxy in data:
-                nnb = galaxy['n_neighbors']
-                dens = galaxy['densities']
-                nnb_vals.append(nnb[i])
-                dens_vals.append(dens[i])
-
-            nnb_vals = np.array(nnb_vals)
-            dens_vals = np.array(dens_vals)
-
-            nnb_mean  = nnb_vals.mean()
-            nnb_min   = nnb_vals.min()
-            nnb_max   = nnb_vals.max()
-            nnb_std   = nnb_vals.std()
-            dens_mean = dens_vals.mean()
-            dens_min  = dens_vals.min()
-            dens_max  = dens_vals.max()
-            dens_std  = dens_vals.std()
-            
-            values_dict[galaxy_type]['by_radius'].append(
-                {
-                    'radius': radius,
-                    'values': {
-                        'nnb_mean': nnb_mean,
-                        'nnb_min': nnb_min,
-                        'nnb_max': nnb_max,
-                        'nnb_std': nnb_std,
-                        'dens_mean': dens_mean,
-                        'dens_min': dens_min,
-                        'dens_max': dens_max,
-                        'dens_std': dens_std
-                    }
-                }
-            )
-    values_dict['_summary'] = {
-        'total_counted': sum(total_counted),
-        'total_rejected':sum(total_rejected)
-    }
-      
-    total_counted = values_dict['_summary']['total_counted']
-    total_rejected = values_dict['_summary']['total_rejected']
-    print(f"{total_counted} galaxies counted, {(total_rejected/(total_rejected+total_counted))*100:.2f}% or {total_rejected} rejected.")
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
-    for galaxy_type, info in values_dict.items():
-        if galaxy_type == '_summary':
-            continue
-
-        radii = []
-        nnb_means = []
-        dens_means = []
-        nnb_stds = []
-        dens_stds = []
-
-        for entry in info['by_radius']:
-            radii.append(entry['radius'])
-            nnb_means.append(entry['values']['nnb_mean'])
-            nnb_stds.append(entry['values']['nnb_std'])
-            dens_means.append(entry['values']['dens_mean'])
-            dens_stds.append(entry['values']['dens_std'])
-
-        #ax1.plot(radii, nnb_means, marker='o', label=galaxy_class)
-        ax1.plot(
-            radii,
-            nnb_means,
-            label=galaxy_type
-        )
-        ax2.plot(
-            radii, 
-            dens_means, 
-            label=galaxy_type
-        )
-
-    ax1.set_xlabel("Search radius (Mpc)")
-    ax1.set_ylabel("Mean number of neighbors")
-    #ax1.set_yscale('log')
-    ax1.legend()
-
-    ax2.set_xlabel("Search radius (Mpc)")
-    ax2.set_ylabel(r"Mean number density (Galaxies/$Mpc^3$)")
-    #ax2.set_yscale('log')
-    fig.suptitle(f'Environment distribution by galaxy {dict_key[:-5]}.')
-
-    plt.show()
-
-def set_bin_num_and_plot(dict_key, result, bins=100):
-    class_or_shape_dict = result[dict_key]
-    D4000n_vals = []
-    h_delta_vals = []
-    z_vals = []
-    for galaxy_type, data in class_or_shape_dict.items():
-        # Exclude rejected_galaxies:
-        if '?' in galaxy_type:
-            continue
-        for galaxy in data:
-            D4000n_vals.append(galaxy['D4000n'])
-            h_delta_vals.append(galaxy['h_delta_EW'])
-            z_vals.append(galaxy['z'])
-    
-    plt.hist(D4000n_vals, bins=bins)
-    plt.xlabel(f"{bins} bins")
-    plt.ylabel(r"$D4000_n$")
-    plt.show()
-
-    plt.hist(h_delta_vals, bins=bins)
-    plt.xlabel(f"{bins} bins")
-    plt.ylabel(r"$H\delta$")
-    plt.show()
-
-    plt.hist(z_vals, bins=bins)
-    plt.xlabel(f"{bins} bins")
-    plt.ylabel(r"redshift")
-    plt.show()
-    
-def plot_vs_density_all_radii(dict_key, result, radii=[2, 5, 10, 15]):
-    class_or_shape_dict = result[dict_key]
-
-    # one figure per dependent variable
-    fig1, ax1 = plt.subplots()
-    fig2, ax2 = plt.subplots()
-    fig3, ax3 = plt.subplots()
-
-    for i, r in enumerate(radii):
-        dens_vals    = []
-        D4000n_vals  = []
-        h_delta_vals = []
-        z_vals       = []
-
-        for galaxy_type, data in class_or_shape_dict.items():
-            if '?' in galaxy_type:
-                continue
-
-            for galaxy in data:
-                dens_vals.append(galaxy['densities'][i])
-                D4000n_vals.append(galaxy['D4000n'])
-                h_delta_vals.append(galaxy['h_delta_EW'])
-                z_vals.append(galaxy['z'])
-
-        dens_vals    = np.asarray(dens_vals)
-        D4000n_vals  = np.asarray(D4000n_vals)
-        h_delta_vals = np.asarray(h_delta_vals)
-        z_vals       = np.asarray(z_vals)
-
-        ax1.scatter(dens_vals, D4000n_vals, s=3, alpha=0.5, label=f"{r} Mpc")
-        ax2.scatter(dens_vals, h_delta_vals, s=3, alpha=0.5, label=f"{r} Mpc")
-        ax3.scatter(dens_vals, z_vals, s=3, alpha=0.5, label=f"{r} Mpc")
-
-    ax1.set_xlabel(r"Number density ($N/\mathrm{Mpc}^3$)")
-    ax1.set_ylabel(r"$D4000_n$")
-    ax1.legend()
-
-    ax2.set_xlabel(r"Number density ($N/\mathrm{Mpc}^3$)")
-    ax2.set_ylabel(r"$H\delta$")
-    ax2.legend()
-
-    ax3.set_xlabel(r"Number density ($N/\mathrm{Mpc}^3$)")
-    ax3.set_ylabel("redshift")
-    ax3.legend()
-
-    fig1.tight_layout()
-    fig2.tight_layout()
-    fig3.tight_layout()
-
-    plt.show()
-
-def plot_age_indicators_and_num_density_for_all(dict_key, result, radius_index=0):
-    """
-    Plot all galaxy types on a single figure for a given search radius.
-    radius_index: index in densities list (0 = 2 Mpc, 1 = 5 Mpc, 2 = 10 Mpc, 3 = 15 Mpc.)
-    """
-    class_or_shape_dict = result[dict_key]
-    
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), sharex=False)
-    fig2, (ax3, ax4) = plt.subplots(1, 2, figsize=(12, 5), sharex=False)
-    
-    for galaxy_type, data in class_or_shape_dict.items():
-        if '?' in galaxy_type or 'dontknow' in galaxy_type:
-            continue
-
-        # Lists for this galaxy type
-        D4000n_vals  = []
-        h_delta_vals = []
-        dens_vals    = []
-        z_vals       = []
-
-        for galaxy in data:
-            dens_vals.append(galaxy['densities'][radius_index])
-            D4000n_vals.append(galaxy['D4000n'])
-            h_delta_vals.append(galaxy['h_delta_EW'])
-            z_vals.append(galaxy['z'])
-
-        # Convert to arrays
-        dens_vals = np.array(dens_vals)
-        D4000n_vals = np.array(D4000n_vals)
-        h_delta_vals = np.array(h_delta_vals)
-        
-
-        # Plot
-        ax1.scatter(dens_vals, D4000n_vals, s=3, label=galaxy_type)
-        ax2.scatter(dens_vals, h_delta_vals, s=3, label=galaxy_type)
-
-        ax3.scatter(z_vals, D4000n_vals, s=3, label=galaxy_type)
-        ax4.scatter(z_vals, h_delta_vals, s=3, label=galaxy_type)
-
-    ax1.set_ylabel(r'$D4000_n$')
-    ax1.set_xlabel(r'Number Density ($N/Mpc^3$)')
-    ax1.legend()
-    
-    ax2.set_ylabel(r'$H\delta$')
-    ax2.set_xlabel(r'Number Density ($N/Mpc^3$)')
-    ax2.legend()
-    
-    fig.suptitle(f'Number density vs age indicators for all galaxy types ({dict_key})')
-    fig.tight_layout()
-
-    ax3.set_ylabel(r'$D4000_n$')
-    ax3.set_xlabel(r'Redshift (z)')
-    ax3.legend()
-    
-    ax4.set_ylabel(r'$H\delta$')
-    ax4.set_xlabel(r'Redshift (z)')
-    ax4.legend()
-    
-    fig2.suptitle(f'Redshift vs age indicators for all galaxy types ({dict_key})')
-    fig2.tight_layout()
-    plt.show()
