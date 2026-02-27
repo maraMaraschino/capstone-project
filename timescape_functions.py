@@ -21,23 +21,39 @@ import os
 
 def sdss_chunk_query(chunk_size, last_id, file_name, folder_name):
     """
-    SQL search SDSS database to return a csv file with the objid, plate, mjd, fiberid,
-    and FITS file URL for all galaxies between z=0.13 to z=0.3, 50000 galaxies at a time
-    to prevent timeout.
+    SQL search SDSS database to return a csv file with the objid, plate, mjd, fiberid, z, ra,
+    dec, passive_logmass, starforming_logmass, pca_logmass, and FITS file URL for all galaxies 
+    between z=0.13 to z=0.3. Can be chunked by chunk_size to prevent timeout.
     """
     sdss_chunk = f"""
 SELECT TOP {chunk_size}
-p.objid, s.plate, s.mjd, s.fiberid, s.z, p.ra, p.dec,
-dbo.fGetUrlFitsSpectrum(s.specObjID) AS spec_fits_url
-FROM PhotoObj AS p
-JOIN SpecObj AS s
+p.objid,
+    s.plate,
+    s.mjd,
+    s.fiberid,
+    s.z,
+    p.ra,
+    p.dec,
+    passive.logmass AS passive_logmass,
+    starforming.logmass AS starforming_logmass,
+    pca.mstellar_median AS pca_logmass,
+    dbo.fGetUrlFitsSpectrum(s.specObjID) AS spec_fits_url
+FROM SpecObj AS s
+JOIN PhotoObj AS p
     ON p.objid = s.bestobjid
 JOIN Galaxy AS g
     ON g.objid = p.objid
-    WHERE s.class = 'GALAXY'
-    AND s.z BETWEEN 0.1397816562350196 AND 0.311104966694253
-    AND s.zWarning = 0
-    AND p.objid > {last_id}
+LEFT JOIN stellarMassPassivePort AS passive
+    ON passive.specobjid = s.specobjid
+LEFT JOIN stellarMassStarformingPort AS starforming
+    ON starforming.specobjid = s.specobjid
+LEFT JOIN stellarMassPCAWiscBC03 AS pca
+    ON pca.specobjid = s.specobjid
+WHERE s.class = 'GALAXY'
+  AND s.z BETWEEN 0.1397816562350196 AND 0.311104966694253
+  AND s.zWarning = 0
+  AND (pca.warning = 0 OR pca.warning IS NULL)
+  AND p.objid > {last_id}
 ORDER BY p.objid
     """
     table = SDSS.query_sql(sdss_chunk)
@@ -352,10 +368,6 @@ def sort_galaxy(spectrum_data_dict):
         return '?: Invalid EW value'
     elif  (D4000n / sigma_D4000n) < 2:
         return '?: D4000n quality cut'
-    elif (h_delta_EW_err >= 0.8):
-        return '?: H delta quality cut'
-    elif (oii_EW / oii_EW_err) < 2:
-        return '?: O II quality cut'
     
     # AGN before other classes
     # Avoiding division by zero/require positive values
@@ -568,15 +580,18 @@ def find_fifth_nearest_neighbor(ra_all, dec_all, z_all):
 def collect_values(files, csv_file_path):
     """
     Using the FITS files, store the objid, redshift, D4000n, sigma D4000n, Hdelta EW, Hdelta err, oii EW, oii EW err, 
-    number density (for 2, 5, 10, 15, 21, and 42 Mpc search windows), galaxy class, and galaxy shape (if available)
-    for every galaxy available. 
+    number density (for 2-42 Mpc search windows), passive/starforming/pca logmass values (if available), galaxy class, 
+    and galaxy shape (if available) for every sampled galaxy. 
     """
     # Load full_sdss.csv for neighbor counting
-    volume_df = pd.read_csv(csv_file_path, dtype={'objid': str})
-    ra_all    = volume_df['ra'].values
-    dec_all   = volume_df['dec'].values
-    z_all     = volume_df['z'].values
-    objid_all = volume_df['objid'].astype(str).values
+    volume_df               = pd.read_csv(csv_file_path, dtype={'objid': str})
+    ra_all                  = volume_df['ra'].values
+    dec_all                 = volume_df['dec'].values
+    z_all                   = volume_df['z'].values
+    objid_all               = volume_df['objid'].astype(str).values
+    passive_logmass_all     = volume_df['passive_logmass'].values
+    starforming_logmass_all = volume_df['starforming_logmass'].values
+    pca_logmass_all         = volume_df['pca_logmass'].values
     # Collect the index of every object for recall
     objid_to_index = {str(objid): i for i, objid in enumerate(objid_all)}    
 
@@ -588,7 +603,7 @@ def collect_values(files, csv_file_path):
     shape_dict = defaultdict(list)
 
     # Radii to calculate neighbors for
-    mpc_radii = [2, 5, 10, 15, 21, 42] # cluster core to typical void radius
+    mpc_radii = range(2, 42, 2) # cluster core to typical void radius
 
     # Collect values
     for file in files:
@@ -609,6 +624,21 @@ def collect_values(files, csv_file_path):
             continue
         
         idx = objid_to_index[objid]
+
+        # Collect masses
+        passive_logmass = passive_logmass_all[idx]
+        starforming_logmass = starforming_logmass_all[idx]
+        pca_logmass = pca_logmass_all[idx]
+
+        # Guard against empty masses
+        if np.isnan(passive_logmass):
+            passive_logmass = None
+
+        if np.isnan(starforming_logmass):
+            starforming_logmass = None
+
+        if np.isnan(pca_logmass):
+            pca_logmass = None
 
         galaxy_class = sort_galaxy(spectrum_data_dict)
         galaxy_shape = determine_shape(objid, "ZOO/full_morphology.csv")
@@ -661,6 +691,9 @@ def collect_values(files, csv_file_path):
                 'comoving_densities': comoving_densities,
                 'fifth_nn_proper': fifth_nn_proper,
                 'fifth_nn_comv': fifth_nn_comv,
+                'passive_logmass': passive_logmass,
+                'starforming_logmass': starforming_logmass,
+                'pca_logmass': pca_logmass,
                 'galaxy_shape': galaxy_shape
             }
         )
@@ -684,6 +717,9 @@ def collect_values(files, csv_file_path):
                 'comoving_densities': comoving_densities,
                 'fifth_nn_proper': fifth_nn_proper,
                 'fifth_nn_comv': fifth_nn_comv,
+                'passive_logmass': passive_logmass,
+                'starforming_logmass': starforming_logmass,
+                'pca_logmass': pca_logmass,
                 'galaxy_class': galaxy_class
             }
         )
