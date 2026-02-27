@@ -107,10 +107,18 @@ def merge_csv(files, final_file, final_folder):
     """
     outdir = Path(final_folder)
     outdir.mkdir(parents=True, exist_ok=True)
-    df_list = [pd.read_csv(f) for f in files]
-    combined = pd.concat(df_list, ignore_index=True)
-    combined.to_csv(f"{outdir}/{final_file}", index=False)
-    return combined
+
+    combined = []
+
+    for f in files:
+        try:
+            df = pd.read_csv(f)
+            combined.append(df)
+        except Exception:
+            print(f"Skipping corrupted file: {f}")
+    final_df = pd.concat(combined, ignore_index=True)
+    final_df.to_csv(f"{outdir}/{final_file}", index=False)
+    return final_df
 
 def cleanup_files(files):
     """
@@ -123,31 +131,41 @@ def loop_galaxy_chunk(query, chunk_size, last_id, file_name, final_file, folder_
     csv_file_list = []
     outdir = Path(folder_name)
     outdir.mkdir(parents=True, exist_ok=True)
+    miss = 0
 
     while True:
         retries = 0
+        chunk_failed=False
 
-        while retries <= 5:
+        while retries <= 10:
+            print(f'Collecting next {chunk_size} galaxies for {folder_name}...')
             try:
-                print(f'Collecting next {chunk_size} galaxies for {folder_name}...')
                 last_id, new_file_name = query(chunk_size, last_id, file_name, folder_name)
 
                 if last_id is None:
+                    print("Done downloading files...")
                     break  # exhausted — exit retry loop
 
                 print(f'Creating builder file: {new_file_name}')
                 csv_file_list.append(str(outdir / new_file_name))
-                break
+                break # Success - leave retry loop
 
             except Exception as e:
                 retries += 1
-                if retries > 5:
-                    raise
-                time.sleep(3)
+                print(f'Retry: {retries}')
+                if retries >= 10:
+                    print(f'Skipping chunk after repeated failures: {e}')
+                    miss += 1
+                    chunk_failed = True
+                    break
+                time.sleep(0.1)
 
         if last_id is None:
             break  # exhausted — exit outer loop
-
+        if chunk_failed:
+            continue # Skip chunk and move on
+    
+    print(f'Missed {miss * chunk_size} total files due to errors.')
     print(f'Merging {len(csv_file_list)} CSV files for {folder_name}...')
     merge_csv(csv_file_list, final_file, folder_name)
     cleanup_files(csv_file_list)
