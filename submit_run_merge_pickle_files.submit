@@ -3,22 +3,22 @@ container_image = osdf://ospool/ap40/data/adrian.fisher/mycontainer.sif
 executable = run_merge_pickle_files.sh
 
 # source_folder, filename, out_folder
-arguments = merge_pickle_files.py builder_pickle_folder full_pickle_file.pkl full_data_pickle
+arguments = merge_pickle_files.py builder_pickle_folder_2 full_pickle_file_2.pkl full_data_pickle_2
 
-transfer_input_files = merge_pickle_files.py, builder_pickle_folder, timescape_functions.py
+transfer_input_files = merge_pickle_files.py, builder_pickle_folder_2, timescape_functions.py
 
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
 preserve_relative_paths = True
 
-transfer_output_files = full_data_pickle
+transfer_output_files = full_data_pickle_2
 
 log    = final_log/job_$(Cluster)_$(Process).log
 output = final_log/job_$(Cluster)_$(Process).out
 error  = final_log/job_$(Cluster)_$(Process).err
 
 request_cpus = 1
-request_memory = 4GB
-request_disk = 3GB
+request_memory = 2GB
+request_disk = 7GB
 
 queue 1
