@@ -34,8 +34,6 @@ p.objid,
     s.z,
     p.ra,
     p.dec,
-    passive.logmass AS passive_logmass,
-    starforming.logmass AS starforming_logmass,
     pca.mstellar_median AS pca_logmass,
     dbo.fGetUrlFitsSpectrum(s.specObjID) AS spec_fits_url
 FROM SpecObj AS s
@@ -43,10 +41,6 @@ JOIN PhotoObj AS p
     ON p.objid = s.bestobjid
 JOIN Galaxy AS g
     ON g.objid = p.objid
-LEFT JOIN stellarMassPassivePort AS passive
-    ON passive.specobjid = s.specobjid
-LEFT JOIN stellarMassStarformingPort AS starforming
-    ON starforming.specobjid = s.specobjid
 LEFT JOIN stellarMassPCAWiscBC03 AS pca
     ON pca.specobjid = s.specobjid
 WHERE s.class = 'GALAXY'
@@ -607,8 +601,6 @@ def collect_values(files, csv_file_path):
     dec_all                 = volume_df['dec'].values
     z_all                   = volume_df['z'].values
     objid_all               = volume_df['objid'].astype(str).values
-    passive_logmass_all     = volume_df['passive_logmass'].values
-    starforming_logmass_all = volume_df['starforming_logmass'].values
     pca_logmass_all         = volume_df['pca_logmass'].values
     # Collect the index of every object for recall
     objid_to_index = {str(objid): i for i, objid in enumerate(objid_all)}    
@@ -644,17 +636,9 @@ def collect_values(files, csv_file_path):
         idx = objid_to_index[objid]
 
         # Collect masses
-        passive_logmass = passive_logmass_all[idx]
-        starforming_logmass = starforming_logmass_all[idx]
         pca_logmass = pca_logmass_all[idx]
 
         # Guard against empty masses
-        if np.isnan(passive_logmass):
-            passive_logmass = None
-
-        if np.isnan(starforming_logmass):
-            starforming_logmass = None
-
         if np.isnan(pca_logmass):
             pca_logmass = None
 
@@ -709,8 +693,6 @@ def collect_values(files, csv_file_path):
                 'comoving_densities': comoving_densities,
                 'fifth_nn_proper': fifth_nn_proper,
                 'fifth_nn_comv': fifth_nn_comv,
-                'passive_logmass': passive_logmass,
-                'starforming_logmass': starforming_logmass,
                 'pca_logmass': pca_logmass,
                 'galaxy_shape': galaxy_shape
             }
@@ -735,8 +717,6 @@ def collect_values(files, csv_file_path):
                 'comoving_densities': comoving_densities,
                 'fifth_nn_proper': fifth_nn_proper,
                 'fifth_nn_comv': fifth_nn_comv,
-                'passive_logmass': passive_logmass,
-                'starforming_logmass': starforming_logmass,
                 'pca_logmass': pca_logmass,
                 'galaxy_class': galaxy_class
             }
