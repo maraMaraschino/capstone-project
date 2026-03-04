@@ -567,21 +567,25 @@ def find_fifth_nearest_neighbor(ra_all, dec_all, z_all):
     Use cKDTree to build a tree out of the sdss csv file of the distances between galaxies. Find the distance to the fifth nearest neighbor (5NN)
     using both the physical and the comoving distance
     """
-    # Find 5NN using proper distance
-    physical_distance_all = cosmo.angular_diameter_distance(z_all) # Mpc
-    coords_from_phys = SkyCoord(ra=ra_all*u.deg, dec=dec_all*u.deg, distance=physical_distance_all)
-    xyz_phys = np.vstack(coords_from_phys.cartesian.xyz).T
-    tree_phys = cKDTree(xyz_phys)
-    dis_phys, _ = tree_phys.query(xyz_phys, k=6)
-    fifth_phys = dis_phys[:, 5]
+    # Find comoving distance
+    comoving_distance_all = cosmo.comoving_distance(z_all) # Mpc
 
     # Find 5NN using comoving distance
-    comoving_distance_all = cosmo.comoving_distance(z_all) # Mpc
     coords_from_comv = SkyCoord(ra=ra_all*u.deg, dec=dec_all*u.deg, distance=comoving_distance_all)
     xyz_comv = np.vstack(coords_from_comv.cartesian.xyz).T
     tree_comv = cKDTree(xyz_comv)
     dis_comv, _ = tree_comv.query(xyz_comv, k=6)
     fifth_comv = dis_comv[:, 5]
+
+    # Convert comoving distance to proper
+    proper_distance_all = comoving_distance_all / (1 + z_all) # Mpc
+
+    # Use proper distances to calculate 5NN
+    coords_from_proper = SkyCoord(ra=ra_all*u.deg, dec=dec_all*u.deg, distance=proper_distance_all)
+    xyz_proper = np.vstack(coords_from_proper.cartesian.xyz).T
+    tree_proper = cKDTree(xyz_proper)
+    dis_phys, _ = tree_proper.query(xyz_proper, k=6)
+    fifth_phys = dis_phys[:, 5]
 
     return fifth_phys, fifth_comv
 
