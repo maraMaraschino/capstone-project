@@ -578,14 +578,7 @@ def find_fifth_nearest_neighbor(ra_all, dec_all, z_all):
     fifth_comv = dis_comv[:, 5]
 
     # Convert comoving distance to proper
-    proper_distance_all = comoving_distance_all / (1 + z_all) # Mpc
-
-    # Use proper distances to calculate 5NN
-    coords_from_proper = SkyCoord(ra=ra_all*u.deg, dec=dec_all*u.deg, distance=proper_distance_all)
-    xyz_proper = np.vstack(coords_from_proper.cartesian.xyz).T
-    tree_proper = cKDTree(xyz_proper)
-    dis_phys, _ = tree_proper.query(xyz_proper, k=6)
-    fifth_phys = dis_phys[:, 5]
+    fifth_phys = fifth_comv / (1 + z_all) # Mpc
 
     return fifth_phys, fifth_comv
 
