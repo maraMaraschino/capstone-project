@@ -17,6 +17,7 @@ from scipy.spatial import cKDTree
 from astropy.coordinates import SkyCoord
 import random
 import os
+from scipy.optimize import curve_fit
 #from pelicanfs.core import OSDFFileSystem
 
 def sdss_chunk_query(chunk_size, last_id, file_name, folder_name):
@@ -767,6 +768,13 @@ def load_result(filename):
     with open(filename, 'rb') as f:
         return pickle.load(f)
 
+def load_data(filename):
+    """
+    Load line data after saving with pickle_line_data
+    """
+    with open(filename, 'rb') as f:
+        return pickle.load(f)
+
 def save_job_pickle(file_line, sdss_csv_path, out_folder, job_index):
     """
     Process a single line from job_list.txt, save as a pickle.
@@ -836,3 +844,90 @@ def merge_pickles(source_folder, filename, out_folder):
 
     return result
     
+def double_gaussian(x, amp_1, mu_1, sigma_1, amp_2, mu_2, sigma_2):
+    return (
+        amp_1 * np.exp(-((x-mu_1)**2) / (2 * sigma_1**2)) 
+        + (amp_2 * np.exp(-((x-mu_2)**2) / (2 * sigma_2**2)))
+    )
+
+def find_dgaussian_values(xdata, ydata, p0, bounds):
+    return curve_fit(double_gaussian, xdata, ydata, p0=p0, bounds=bounds)
+
+def plot_best_fit(d4000n_vals, low, high, p0, bins=100, plot=False):
+    # Plot distribution to visualize
+    low_cut, high_cut = np.percentile(d4000n_vals, [low, high])
+    if plot == True:
+        plt.hist(d4000n_vals, bins=bins, label="Raw Data")
+
+    # Find best fit
+    counts, edges = np.histogram(d4000n_vals, bins=bins)
+    centers = (edges[:-1] + edges[1:])/2
+    bounds = (
+        [500, 0.75, 0.003, 2000, 1.79, 0.003],
+        [5000, 1.22, 0.1, 8000, 1.9, 0.1]
+    )
+    
+    popt, pcov = find_dgaussian_values(centers, counts, p0=p0, bounds=bounds)
+
+    x_fit = np.linspace(min(centers), max(centers), 1000)
+    y_fit = double_gaussian(x_fit, *popt)
+    idx1, idx2 = 1, 4
+
+    if plot==True:
+        print(f"p0: {p0}")
+        print(f"popt:\n{popt}")
+        print(f"pcov:\n{np.sqrt(np.diag(pcov))}")
+    
+    # Return values
+    sigmas = np.sqrt(np.diag(pcov))
+    mu_1, mu_2             = popt[idx1], popt[idx2]
+    sigma_1, sigma_2 = sigmas[idx1], sigmas[idx2]
+    mu_sigma_pairs = [(mu_1, sigma_1), (mu_2, sigma_2)]
+
+    # Find valley for splitting passive and active
+    left, right = sorted([mu_1, mu_2])
+    mask = (x_fit >= left) & (x_fit <= right)
+    x_between = x_fit[mask]
+    y_between = y_fit[mask]
+    valley_x = x_between[np.argmin(y_between)]
+
+    if plot==True:
+        # Create plot
+        plt.plot(x_fit, y_fit, color="red", label="Line of best fit")
+        plt.xlim(low_cut, high_cut)
+        plt.ylim(bottom=0)
+        plt.axvspan(valley_x, high_cut, color='green', alpha=0.3, label='Passive galaxies')
+        plt.axvline(mu_1, color='black', label=rf"$\mu_1$: {mu_1:.3f} $\pm$ {sigma_1:.3f}")
+        plt.axvline(mu_2, color='black', label=rf"$\mu_2$: {mu_2:.3f} $\pm$ {sigma_2:.3f}")
+        plt.legend()
+        plt.title(r"$D4000_n$ distribution")
+        plt.xlabel(r"Line Strength")
+        plt.ylabel("Galaxy Count")
+        plt.tight_layout()
+        plt.savefig(f'../Images/D4000n_distribution.png')
+        plt.show()
+
+    return mu_sigma_pairs, valley_x
+
+def load_bin_intervals(analysis_sample, dm, dz):
+    # Stellar mass bins
+    m_min = np.floor(analysis_sample["logM"].min() / dm) * dm
+    m_max = np.ceil(analysis_sample["logM"].max() / dm) * dm
+    mass_bins = np.arange(m_min, m_max + dm, dm)
+
+    analysis_sample["mass_bin"] = pd.cut(
+        analysis_sample["logM"],
+        bins=mass_bins
+    )
+
+    # Redshift bins
+    z_min = np.floor(analysis_sample["z"].min() / dz) * dz
+    z_max = np.ceil(analysis_sample["z"].max() / dz) * dz
+    z_bins = np.arange(z_min, z_max + dz, dz)
+
+    analysis_sample["z_bin"] = pd.cut(
+        analysis_sample["z"],
+        bins=z_bins
+    )
+
+    return analysis_sample
